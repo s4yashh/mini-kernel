@@ -1,10 +1,10 @@
 # Mini Kernel Simulator — Complete Delivery
 
-All file contents below are copied exactly from the working project. Save each fenced block at its stated path.
+Current files from the project workspace.
 
 ## CMakeLists.txt
 
-```cmake
+````cmake
 cmake_minimum_required(VERSION 3.10)
 project(MiniKernelSimulator LANGUAGES CXX)
 
@@ -16,7 +16,7 @@ if(MSVC)
 else()
     target_compile_options(mini_kernel PRIVATE -Wall -Wextra)
 endif()
-```
+````
 
 ## README.md
 
@@ -90,7 +90,7 @@ SCAN starts toward cylinder zero. C-SCAN starts toward cylinder 199 and counts t
 
 ## include/pcb.h
 
-```cpp
+````cpp
 #ifndef MINI_KERNEL_PCB_H
 #define MINI_KERNEL_PCB_H
 
@@ -100,7 +100,6 @@ SCAN starts toward cylinder zero. C-SCAN starts toward cylinder 199 and counts t
 
 enum class State { NEW, READY, RUNNING, WAITING, TERMINATED };
 
-// Convert an internal process state to the word printed in the kernel trace.
 inline const char* stateName(State state) {
     switch (state) {
         case State::NEW: return "NEW";
@@ -120,7 +119,6 @@ struct PCB {
     int finish = -1, response = -1, waiting = 0, turnaround = 0;
 };
 
-// Change state once and, when requested, show the exact simulated clock time.
 inline void setState(PCB& process, State next, int time, bool verbose = true,
                      std::ostream& out = std::cout) {
     if (process.state == next) return;
@@ -130,7 +128,6 @@ inline void setState(PCB& process, State next, int time, bool verbose = true,
     process.state = next;
 }
 
-// Return fresh PCBs so each algorithm starts from identical input.
 inline std::vector<PCB> sampleProcesses() {
     return {{1, "init", 0, 8, 8, 3}, {2, "editor", 1, 4, 4, 1},
             {3, "compiler", 2, 9, 9, 4}, {4, "browser", 3, 5, 5, 2},
@@ -138,11 +135,11 @@ inline std::vector<PCB> sampleProcesses() {
 }
 
 #endif
-```
+````
 
 ## include/scheduler.h
 
-```cpp
+````cpp
 #ifndef MINI_KERNEL_SCHEDULER_H
 #define MINI_KERNEL_SCHEDULER_H
 
@@ -158,7 +155,6 @@ namespace cpu {
 
 enum class Algorithm { FCFS, SJF, SRTF, PRIORITY, RR };
 
-// Keep names in one place for the menu, trace and comparison table.
 inline const char* name(Algorithm algorithm) {
     switch (algorithm) {
         case Algorithm::FCFS: return "FCFS";
@@ -171,14 +167,13 @@ inline const char* name(Algorithm algorithm) {
 }
 
 struct Result {
-    Algorithm algorithm;
+    Algorithm algorithm = Algorithm::FCFS;
     std::vector<PCB> processes;
-    std::vector<int> ticks; // PID used during each tick; -1 means idle.
+    std::vector<int> ticks;
     int elapsed = 0, busy = 0, contextSwitches = 0;
     double averageWaiting = 0, averageTurnaround = 0, averageResponse = 0;
 };
 
-// Choose one READY process; arrival and PID make ties deterministic.
 inline int bestReady(const std::vector<PCB>& processes, Algorithm algorithm) {
     int best = -1;
     for (std::size_t i = 0; i < processes.size(); ++i) {
@@ -186,19 +181,26 @@ inline int bestReady(const std::vector<PCB>& processes, Algorithm algorithm) {
         if (p.state != State::READY) continue;
         if (best < 0) { best = static_cast<int>(i); continue; }
         const PCB& b = processes[best];
-        int key = algorithm == Algorithm::PRIORITY ? p.priority :
-                  algorithm == Algorithm::FCFS ? p.arrival :
-                  algorithm == Algorithm::SJF ? p.burst : p.remaining;
-        int old = algorithm == Algorithm::PRIORITY ? b.priority :
-                  algorithm == Algorithm::FCFS ? b.arrival :
-                  algorithm == Algorithm::SJF ? b.burst : b.remaining;
-        if (key < old || (key == old && (p.arrival < b.arrival ||
-            (p.arrival == b.arrival && p.pid < b.pid)))) best = static_cast<int>(i);
+        int currentValue = p.remaining;
+        int bestValue = b.remaining;
+        if (algorithm == Algorithm::FCFS) {
+            currentValue = p.arrival;
+            bestValue = b.arrival;
+        } else if (algorithm == Algorithm::SJF) {
+            currentValue = p.burst;
+            bestValue = b.burst;
+        } else if (algorithm == Algorithm::PRIORITY) {
+            currentValue = p.priority;
+            bestValue = b.priority;
+        }
+        if (currentValue < bestValue) best = static_cast<int>(i);
+        else if (currentValue == bestValue && p.arrival < b.arrival) best = static_cast<int>(i);
+        else if (currentValue == bestValue && p.arrival == b.arrival && p.pid < b.pid)
+            best = static_cast<int>(i);
     }
     return best;
 }
 
-// Simulate one clock tick at a time: admit, preempt, dispatch, execute, then complete.
 inline Result run(std::vector<PCB> processes, Algorithm algorithm, int quantum = 3,
                   bool verbose = true, std::ostream& out = std::cout) {
     if (quantum <= 0) throw std::invalid_argument("Quantum must be positive");
@@ -211,28 +213,30 @@ inline Result run(std::vector<PCB> processes, Algorithm algorithm, int quantum =
         p.remaining = p.burst; p.state = State::NEW;
         p.finish = -1; p.response = -1; p.waiting = p.turnaround = 0;
     }
-    Result result{algorithm, processes, {}, 0, 0, 0, 0, 0, 0};
+    Result result;
+    result.algorithm = algorithm;
+    result.processes = processes;
     std::deque<int> queue;
     int running = -1, pendingRR = -1, slice = 0, completed = 0, time = 0;
     if (verbose) out << "\n=== " << name(algorithm) << " kernel trace ===\n";
 
     while (completed < static_cast<int>(processes.size())) {
-        // Arrivals become READY before deciding who owns this tick.
         for (std::size_t i = 0; i < processes.size(); ++i) {
             if (processes[i].state == State::NEW && processes[i].arrival == time) {
                 setState(processes[i], State::READY, time, verbose, out);
                 if (algorithm == Algorithm::RR) queue.push_back(static_cast<int>(i));
             }
         }
-        // At a quantum boundary, new arrivals join before the expired process.
         if (pendingRR >= 0) { queue.push_back(pendingRR); pendingRR = -1; }
         if (running >= 0 && (algorithm == Algorithm::SRTF ||
                              algorithm == Algorithm::PRIORITY)) {
             int challenger = bestReady(processes, algorithm);
-            if (challenger >= 0 &&
-                (algorithm == Algorithm::SRTF
-                    ? processes[challenger].remaining < processes[running].remaining
-                    : processes[challenger].priority < processes[running].priority)) {
+            bool preempt = false;
+            if (challenger >= 0 && algorithm == Algorithm::SRTF)
+                preempt = processes[challenger].remaining < processes[running].remaining;
+            if (challenger >= 0 && algorithm == Algorithm::PRIORITY)
+                preempt = processes[challenger].priority < processes[running].priority;
+            if (preempt) {
                 setState(processes[running], State::READY, time, verbose, out);
                 running = -1;
             }
@@ -247,7 +251,7 @@ inline Result run(std::vector<PCB> processes, Algorithm algorithm, int quantum =
                 PCB& p = processes[running];
                 if (p.response < 0) p.response = time - p.arrival;
                 setState(p, State::RUNNING, time, verbose, out);
-                ++result.contextSwitches; // Count dispatches, including the first.
+                ++result.contextSwitches;
                 slice = 0;
             }
         }
@@ -312,7 +316,6 @@ inline Result run(std::vector<PCB> processes, Algorithm algorithm, int quantum =
     return result;
 }
 
-// Run each policy on a fresh copy and print the metrics side by side.
 inline void compare(const std::vector<PCB>& processes, int quantum = 3,
                     std::ostream& out = std::cout) {
     out << "\nAlgorithm      Avg WT  Avg TAT  Avg RT  Dispatches\n";
@@ -326,20 +329,18 @@ inline void compare(const std::vector<PCB>& processes, int quantum = 3,
     }
 }
 
-} // namespace cpu
+}
 #endif
-```
+````
 
 ## include/memory.h
 
-```cpp
+````cpp
 #ifndef MINI_KERNEL_MEMORY_H
 #define MINI_KERNEL_MEMORY_H
 
-#include <algorithm>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -348,13 +349,13 @@ namespace memory {
 
 enum class Algorithm { FIFO, LRU, OPTIMAL };
 inline const char* name(Algorithm a) {
-    return a == Algorithm::FIFO ? "FIFO" : a == Algorithm::LRU ? "LRU" : "Optimal";
+    if (a == Algorithm::FIFO) return "FIFO";
+    if (a == Algorithm::LRU) return "LRU";
+    return "Optimal";
 }
 
 struct Result { int faults = 0, hits = 0; double faultRate = 0; };
 
-// Replace on a miss: oldest insertion for FIFO, oldest use for LRU,
-// or farthest future use for Optimal. Hits never advance FIFO insertion age.
 inline Result run(const std::vector<int>& references, int frameCount, Algorithm algorithm,
                   bool verbose = true, std::ostream& out = std::cout) {
     if (frameCount <= 0) throw std::invalid_argument("Frame count must be positive");
@@ -376,8 +377,10 @@ inline Result run(const std::vector<int>& references, int frameCount, Algorithm 
                 if (frames[j] == -1) { slot = j; break; }
             if (slot < 0 && algorithm == Algorithm::FIFO) slot = fifoNext;
             if (slot < 0 && algorithm == Algorithm::LRU) {
-                slot = static_cast<int>(std::min_element(lastUsed.begin(), lastUsed.end())
-                                        - lastUsed.begin());
+                slot = 0;
+                for (int j = 1; j < frameCount; ++j) {
+                    if (lastUsed[j] < lastUsed[slot]) slot = j;
+                }
             }
             if (slot < 0 && algorithm == Algorithm::OPTIMAL) {
                 int farthest = -1;
@@ -409,7 +412,6 @@ inline Result run(const std::vector<int>& references, int frameCount, Algorithm 
     return result;
 }
 
-// Compare policies using the same reference string and frame count.
 inline void compare(const std::vector<int>& references, int frameCount,
                     std::ostream& out = std::cout) {
     out << "\nAlgorithm Faults Hits Fault rate\n";
@@ -425,13 +427,13 @@ inline std::vector<int> sampleReferences() {
     return {7,0,1,2,0,3,0,4,2,3,0,3,2,1,2,0,1,7,0,1};
 }
 
-} // namespace memory
+}
 #endif
-```
+````
 
 ## include/banker.h
 
-```cpp
+````cpp
 #ifndef MINI_KERNEL_BANKER_H
 #define MINI_KERNEL_BANKER_H
 
@@ -451,7 +453,6 @@ class Banker {
     Vector available_;
     Matrix maximum_, allocation_, need_;
 public:
-    // Compute Need = Maximum - Allocation and reject malformed resource tables.
     Banker(Vector available, Matrix maximum, Matrix allocation)
         : available_(available), maximum_(maximum), allocation_(allocation) {
         if (available_.empty() || maximum_.empty() || maximum_.size() != allocation_.size())
@@ -470,8 +471,6 @@ public:
         }
     }
 
-    // Find an unfinished process whose remaining Need fits Work; pretend it finishes
-    // and releases its Allocation, then repeat until all finish or no one can.
     Safety safety(bool verbose = true, std::ostream& out = std::cout) const {
         Vector work = available_;
         std::vector<bool> finished(need_.size(), false);
@@ -509,7 +508,6 @@ public:
         return answer;
     }
 
-    // Try a request on a temporary copy. Commit only if the safety check still succeeds.
     Decision request(std::size_t pid, const Vector& amount, bool verbose = true,
                      std::ostream& out = std::cout) {
         if (pid >= need_.size() || amount.size() != available_.size())
@@ -541,210 +539,187 @@ public:
     }
 };
 
-// The standard five-process example from Operating Systems textbooks.
 inline Banker sample() {
     return Banker({3,3,2}, {{7,5,3},{3,2,2},{9,0,2},{2,2,2},{4,3,3}},
                   {{0,1,0},{2,0,0},{3,0,2},{2,1,1},{0,0,2}});
 }
 
-// Requests are applied in order to the same state, as in a real running system.
 inline void requestDemo(std::ostream& out = std::cout) {
     Banker b = sample();
     b.request(1, {1,0,2}, true, out);
     b.request(4, {3,3,0}, true, out);
     b.request(0, {0,2,0}, true, out);
 }
-} // namespace banker
+}
 #endif
-```
+````
 
 ## include/sync.h
 
-```cpp
+````cpp
 #ifndef MINI_KERNEL_SYNC_H
 #define MINI_KERNEL_SYNC_H
 
-#include <algorithm>
 #include <deque>
 #include <iostream>
-#include <map>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 namespace syncsim {
 
-// A counting semaphore transfers a released permit directly to its oldest waiter.
-// Therefore signal() leaves value at zero when it wakes a blocked process.
 class Semaphore {
-    int value_;
+    int permits_;
     std::deque<std::string> blocked_;
 public:
-    explicit Semaphore(int initial) : value_(initial) {
-        if (initial < 0) throw std::invalid_argument("Negative semaphore value");
+    explicit Semaphore(int permits) : permits_(permits) {
+        if (permits < 0) throw std::invalid_argument("Negative semaphore value");
     }
-    bool wait(const std::string& pid) {
-        if (value_ > 0) { --value_; return true; }
-        blocked_.push_back(pid);
+
+    bool wait(const std::string& process) {
+        if (permits_ > 0) {
+            --permits_;
+            return true;
+        }
+        blocked_.push_back(process);
         return false;
     }
+
     std::string signal() {
         if (!blocked_.empty()) {
-            std::string pid = blocked_.front(); blocked_.pop_front(); return pid;
+            std::string process = blocked_.front();
+            blocked_.pop_front();
+            return process;
         }
-        ++value_;
+        ++permits_;
         return "";
     }
-    int value() const { return value_; }
+
+    int value() const { return permits_; }
     const std::deque<std::string>& blocked() const { return blocked_; }
 };
 
-// A binary semaphore initialized to one gives mutually exclusive ownership.
 class Mutex {
     Semaphore gate_{1};
 public:
-    bool lock(const std::string& pid) { return gate_.wait(pid); }
+    bool lock(const std::string& process) { return gate_.wait(process); }
     std::string unlock() { return gate_.signal(); }
     int value() const { return gate_.value(); }
 };
 
 class ProducerConsumer {
-    struct Pending { bool produce; int item; };
-    std::size_t capacity_;
     std::deque<int> buffer_;
-    Semaphore empty_, full_;
+    Semaphore empty_;
+    Semaphore full_{0};
     Mutex mutex_;
-    std::map<std::string, Pending> pending_;
     bool verbose_;
     std::ostream& out_;
     int step_ = 0;
 
-    // Print the complete shared state after each meaningful simulated event.
-    void log(const std::string& event) {
+    void show(const std::string& message) {
         if (!verbose_) return;
-        out_ << "Step " << ++step_ << ": " << event << " | buffer=[";
-        for (std::size_t i = 0; i < buffer_.size(); ++i)
-            out_ << (i ? "," : "") << buffer_[i];
-        out_ << "] empty=" << empty_.value() << " full=" << full_.value()
+        out_ << "Step " << ++step_ << ": " << message << " | buffer=[";
+        for (std::size_t i = 0; i < buffer_.size(); ++i) {
+            if (i > 0) out_ << ",";
+            out_ << buffer_[i];
+        }
+        out_ << "] empty=" << empty_.value()
+             << " full=" << full_.value()
              << " mutex=" << mutex_.value() << '\n';
     }
 
-    // Complete an operation after its empty/full permit is obtained. A wakeup
-    // already owns the transferred permit, so it must not call wait() again.
-    void execute(const std::string& pid, bool produce, int item, bool reserved) {
-        Semaphore& first = produce ? empty_ : full_;
-        if (!reserved && !first.wait(pid)) {
-            pending_[pid] = {produce, item};
-            log(pid + (produce ? " BLOCKED: buffer full" : " BLOCKED: buffer empty"));
-            return;
-        }
-        log(pid + (reserved ? " resumes with reserved permit" : " gets semaphore permit"));
-        if (!mutex_.lock(pid)) throw std::logic_error("Unexpected mutex contention");
-        log(pid + " locks mutex");
-        if (produce) {
-            buffer_.push_back(item);
-            log(pid + " produces " + std::to_string(item));
-        } else {
-            int taken = buffer_.front(); buffer_.pop_front();
-            log(pid + " consumes " + std::to_string(taken));
-        }
-        mutex_.unlock();
-        log(pid + " unlocks mutex");
-        std::string woken = (produce ? full_ : empty_).signal();
-        log(pid + (produce ? " signals full" : " signals empty") +
-            (woken.empty() ? "" : "; wakes " + woken));
-        if (!woken.empty()) {
-            Pending next = pending_.at(woken);
-            pending_.erase(woken);
-            execute(woken, next.produce, next.item, true);
-        }
-    }
 public:
-    // Empty starts at capacity, full at zero, and mutex at one.
-    explicit ProducerConsumer(std::size_t capacity, bool verbose = true,
-                              std::ostream& out = std::cout)
-        : capacity_(capacity), empty_(static_cast<int>(capacity)), full_(0),
-          verbose_(verbose), out_(out) {
-        if (capacity == 0) throw std::invalid_argument("Buffer capacity must be positive");
-        log("initial state (capacity=" + std::to_string(capacity_) + ")");
+    ProducerConsumer(int capacity, bool verbose, std::ostream& out)
+        : empty_(capacity), verbose_(verbose), out_(out) {
+        if (capacity <= 0) throw std::invalid_argument("Buffer capacity must be positive");
+        show("initial state");
     }
-    void produce(const std::string& pid, int item) { execute(pid, true, item, false); }
-    void consume(const std::string& pid) { execute(pid, false, 0, false); }
+
+    std::string produce(const std::string& process, int item, bool hasPermit = false) {
+        if (!hasPermit && !empty_.wait(process)) {
+            show(process + " BLOCKED: buffer full");
+            return "";
+        }
+        show(process + " gets an empty slot");
+        if (!mutex_.lock(process)) throw std::logic_error("Mutex is busy");
+        show(process + " locks mutex");
+        buffer_.push_back(item);
+        show(process + " produces " + std::to_string(item));
+        mutex_.unlock();
+        show(process + " unlocks mutex");
+        std::string woken = full_.signal();
+        std::string message = process + " signals full";
+        if (!woken.empty()) message += "; wakes " + woken;
+        show(message);
+        return woken;
+    }
+
+    std::string consume(const std::string& process, bool hasPermit = false) {
+        if (!hasPermit && !full_.wait(process)) {
+            show(process + " BLOCKED: buffer empty");
+            return "";
+        }
+        show(process + " gets a full slot");
+        if (!mutex_.lock(process)) throw std::logic_error("Mutex is busy");
+        show(process + " locks mutex");
+        int item = buffer_.front();
+        buffer_.pop_front();
+        show(process + " consumes " + std::to_string(item));
+        mutex_.unlock();
+        show(process + " unlocks mutex");
+        std::string woken = empty_.signal();
+        std::string message = process + " signals empty";
+        if (!woken.empty()) message += "; wakes " + woken;
+        show(message);
+        return woken;
+    }
 };
 
-// This script forces both empty-buffer and full-buffer blocking, followed by wakeups.
 inline void producerConsumerDemo(bool verbose = true, std::ostream& out = std::cout) {
     ProducerConsumer demo(2, verbose, out);
     demo.consume("C1");
-    demo.produce("P1", 10);
+    std::string woken = demo.produce("P1", 10);
+    if (woken == "C1") demo.consume("C1", true);
     demo.produce("P1", 20);
     demo.produce("P1", 30);
     demo.produce("P2", 40);
-    demo.consume("C2");
+    woken = demo.consume("C2");
+    if (woken == "P2") demo.produce("P2", 40, true);
     demo.consume("C2");
     demo.consume("C2");
 }
 
-// Five philosophers first take their left fork. Each then needs the next fork,
-// which another philosopher holds: circular wait means none can advance.
 inline void diningDeadlock(bool verbose = true, std::ostream& out = std::cout) {
     if (!verbose) return;
-    out << "\nDining philosophers: deadlocking left-then-right policy\n";
-    int owner[5] = {-1,-1,-1,-1,-1};
-    for (int p = 0; p < 5; ++p) {
-        owner[p] = p;
-        out << "Step " << p + 1 << ": P" << p << " takes left fork " << p << '\n';
-    }
-    for (int p = 0; p < 5; ++p) {
-        int right = (p + 1) % 5;
-        out << "Step " << p + 6 << ": P" << p << " BLOCKED on right fork "
-            << right << " held by P" << owner[right] << '\n';
-    }
+    out << "\nDining philosophers: left fork first\n";
+    int step = 0;
+    for (int p = 0; p < 5; ++p)
+        out << "Step " << ++step << ": P" << p << " takes left fork " << p << '\n';
+    for (int p = 0; p < 5; ++p)
+        out << "Step " << ++step << ": P" << p << " BLOCKED on right fork "
+            << (p + 1) % 5 << " held by P" << (p + 1) % 5 << '\n';
     out << "DEADLOCK: all five hold one fork and wait in a cycle.\n";
 }
 
-// Number forks and acquire the lower-numbered one first. This breaks circular
-// wait. The scripted order shows P3 can eat, release, then unblock its neighbors.
 inline void diningFixed(bool verbose = true, std::ostream& out = std::cout) {
     if (!verbose) return;
-    out << "\nDining philosophers: resource ordering (lower fork first)\n";
-    int owner[5] = {-1,-1,-1,-1,-1};
-    int first[5], second[5], step = 0;
-    for (int p = 0; p < 5; ++p) {
-        first[p] = std::min(p, (p + 1) % 5);
-        second[p] = std::max(p, (p + 1) % 5);
-        if (owner[first[p]] < 0) {
-            owner[first[p]] = p;
-            out << "Step " << ++step << ": P" << p << " takes fork " << first[p] << '\n';
-        } else {
-            out << "Step " << ++step << ": P" << p << " BLOCKED on fork "
-                << first[p] << " held by P" << owner[first[p]] << '\n';
-        }
-    }
-    for (int p = 0; p < 4; ++p) {
-        int fork = second[p];
-        if (owner[fork] < 0) {
-            owner[fork] = p;
-            out << "Step " << ++step << ": P" << p << " takes fork " << fork << '\n';
-        } else {
-            out << "Step " << ++step << ": P" << p << " BLOCKED on fork " << fork
-                << " held by P" << owner[fork] << '\n';
-        }
-    }
+    out << "\nDining philosophers: lower-numbered fork first\n";
+    int step = 0;
+    for (int p = 0; p < 4; ++p)
+        out << "Step " << ++step << ": P" << p << " takes fork " << p << '\n';
+    out << "Step " << ++step << ": P4 BLOCKED on fork 0 held by P0\n";
+    for (int p = 0; p < 3; ++p)
+        out << "Step " << ++step << ": P" << p << " BLOCKED on fork "
+            << p + 1 << " held by P" << p + 1 << '\n';
+    out << "Step " << ++step << ": P3 takes fork 4\n";
     for (int p = 3; p >= 0; --p) {
         out << "Step " << ++step << ": P" << p << " eats and releases forks "
-            << first[p] << " and " << second[p] << '\n';
-        owner[first[p]] = owner[second[p]] = -1;
-        if (p > 0) {
-            owner[second[p - 1]] = p - 1;
-            out << "Step " << ++step << ": P" << p - 1 << " wakes and takes fork "
-                << second[p - 1] << '\n';
-        }
+            << p << " and " << p + 1 << '\n';
+        if (p > 0)
+            out << "Step " << ++step << ": P" << p - 1
+                << " wakes and takes fork " << p << '\n';
     }
-    owner[first[4]] = 4;
-    out << "Step " << ++step << ": P4 wakes and takes fork " << first[4] << '\n';
-    owner[second[4]] = 4;
-    out << "Step " << ++step << ": P4 takes fork " << second[4] << '\n';
+    out << "Step " << ++step << ": P4 wakes and takes fork 0\n";
+    out << "Step " << ++step << ": P4 takes fork 4\n";
     out << "Step " << ++step << ": P4 eats and releases forks 0 and 4\n";
     out << "All five eat; resource ordering prevents circular wait.\n";
 }
@@ -754,13 +729,13 @@ inline void diningDemo(bool verbose = true, std::ostream& out = std::cout) {
     diningFixed(verbose, out);
 }
 
-} // namespace syncsim
+}
 #endif
-```
+````
 
 ## include/disk.h
 
-```cpp
+````cpp
 #ifndef MINI_KERNEL_DISK_H
 #define MINI_KERNEL_DISK_H
 
@@ -768,14 +743,11 @@ inline void diningDemo(bool verbose = true, std::ostream& out = std::cout) {
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace disk {
-
-// The path includes physical travel to disk edges; serviceOrder contains requests only.
 struct Result {
     std::string algorithm;
     std::vector<int> serviceOrder;
@@ -783,8 +755,6 @@ struct Result {
     int totalMovement = 0;
     double averageSeek = 0.0;
 };
-
-// Reject positions outside the disk before computing a route.
 inline void validate(const std::vector<int>& requests, int head, int diskSize) {
     if (diskSize <= 0 || head < 0 || head >= diskSize)
         throw std::invalid_argument("Disk size/head position is invalid");
@@ -792,21 +762,15 @@ inline void validate(const std::vector<int>& requests, int head, int diskSize) {
         if (request < 0 || request >= diskSize)
             throw std::invalid_argument("Request lies outside the disk");
 }
-
-// Record physical head travel, including travel that services no request.
 inline void moveTo(Result& result, int cylinder) {
     int previous = result.headPath.back();
     result.totalMovement += (previous > cylinder ? previous - cylinder : cylinder - previous);
     if (previous != cylinder) result.headPath.push_back(cylinder);
 }
-
-// Add a request to the service order as the head reaches its cylinder.
 inline void service(Result& result, int cylinder) {
     moveTo(result, cylinder);
     result.serviceOrder.push_back(cylinder);
 }
-
-// Compute one policy's service order, physical path, and seek statistics.
 inline Result schedule(const std::vector<int>& requests, int head, int diskSize,
                        const std::string& algorithm, bool verbose = true,
                        std::ostream& out = std::cout) {
@@ -816,11 +780,10 @@ inline Result schedule(const std::vector<int>& requests, int head, int diskSize,
     if (algorithm == "FCFS") {
         for (int request : requests) service(result, request);
     } else if (algorithm == "SSTF") {
-        // Reconsider every outstanding request after each service. Ties use the lower cylinder.
         std::vector<bool> done(requests.size(), false);
         for (std::size_t count = 0; count < requests.size(); ++count) {
             std::size_t best = requests.size();
-            int bestDistance = std::numeric_limits<int>::max();
+            int bestDistance = diskSize;
             for (std::size_t i = 0; i < requests.size(); ++i) {
                 if (done[i]) continue;
                 int distance = std::abs(requests[i] - result.headPath.back());
@@ -834,7 +797,6 @@ inline Result schedule(const std::vector<int>& requests, int head, int diskSize,
             service(result, requests[best]);
         }
     } else if (algorithm == "SCAN" || algorithm == "C-SCAN") {
-        // This demo's SCAN starts toward 0; C-SCAN starts toward higher cylinders.
         std::vector<int> high, low;
         for (int request : requests) {
             if (request >= head) high.push_back(request);
@@ -843,14 +805,14 @@ inline Result schedule(const std::vector<int>& requests, int head, int diskSize,
         std::sort(high.begin(), high.end());
         std::sort(low.begin(), low.end());
         if (algorithm == "SCAN") {
-            for (auto it = low.rbegin(); it != low.rend(); ++it) service(result, *it);
+            for (int i = static_cast<int>(low.size()) - 1; i >= 0; --i)
+                service(result, low[i]);
             if (!high.empty()) moveTo(result, 0);
             for (int request : high) service(result, request);
         } else {
             for (int request : high) service(result, request);
             if (!low.empty()) {
                 moveTo(result, diskSize - 1);
-                // The wrap is counted as physical movement; it services no request.
                 moveTo(result, 0);
                 for (int request : low) service(result, request);
             }
@@ -875,8 +837,6 @@ inline Result schedule(const std::vector<int>& requests, int head, int diskSize,
     }
     return result;
 }
-
-// Run all four policies on identical input and print a compact comparison.
 inline void compare(const std::vector<int>& requests, int head, int diskSize,
                     bool verbose = true, std::ostream& out = std::cout) {
     if (!verbose) return;
@@ -888,18 +848,16 @@ inline void compare(const std::vector<int>& requests, int head, int diskSize,
             << std::setprecision(2) << result.averageSeek << "\n";
     }
 }
-
-// Return the standard eight-request exercise used in the menu demos.
 inline std::vector<int> sampleRequests() { return {98, 183, 37, 122, 14, 124, 65, 67}; }
 
-} // namespace disk
+}
 
 #endif
-```
+````
 
 ## src/main.cpp
 
-```cpp
+````cpp
 #include "banker.h"
 #include "disk.h"
 #include "memory.h"
@@ -908,13 +866,11 @@ inline std::vector<int> sampleRequests() { return {98, 183, 37, 122, 14, 124, 65
 #include "sync.h"
 
 #include <iostream>
-#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-// Parse one whole line as one integer; extra characters count as bad input.
 int parseInteger(const std::string& line, int minimum, int maximum) {
     std::istringstream in(line);
     int value;
@@ -924,38 +880,34 @@ int parseInteger(const std::string& line, int minimum, int maximum) {
     return value;
 }
 
-// Keep prompting after nonnumeric input; Enter selects a documented default.
 int askInteger(const std::string& prompt, int minimum, int maximum,
-               std::optional<int> defaultValue = std::nullopt) {
+               int defaultValue = -1) {
     while (true) {
         std::cout << prompt;
         std::string line;
         if (!std::getline(std::cin, line)) throw std::runtime_error("Input ended");
-        if (line.empty() && defaultValue) return *defaultValue;
+        if (line.empty() && defaultValue >= minimum) return defaultValue;
         try { return parseInteger(line, minimum, maximum); }
         catch (const std::invalid_argument& error) { std::cout << error.what() << '\n'; }
     }
 }
 
-// Read exactly the requested count of nonnegative page references.
 std::vector<int> askReferences() {
     int count = askInteger("Number of references (1..100): ", 1, 100);
     while (true) {
         std::cout << "Enter " << count << " nonnegative page numbers, space separated: ";
         std::string line; if (!std::getline(std::cin, line)) throw std::runtime_error("Input ended");
-        std::istringstream in(line);
+        std::istringstream input(line);
         std::vector<int> values;
-        int page; while (in >> page) values.push_back(page);
-        std::string extra;
-        if (values.size() == static_cast<std::size_t>(count) && !(in.clear(), in >> extra)) {
-            bool valid = true; for (int x : values) if (x < 0) valid = false;
-            if (valid) return values;
-        }
+        int page;
+        while (input >> page) values.push_back(page);
+        bool valid = input.eof() && values.size() == static_cast<std::size_t>(count);
+        for (int value : values) if (value < 0) valid = false;
+        if (valid) return values;
         std::cout << "Invalid reference list. Try again.\n";
     }
 }
 
-// Accept one process per line and replace the active process set only when all are valid.
 std::vector<PCB> askProcesses() {
     int count = askInteger("Number of processes (1..20): ", 1, 20);
     std::vector<PCB> processes;
@@ -978,7 +930,6 @@ std::vector<PCB> askProcesses() {
     return processes;
 }
 
-// Present numbered actions; sample data is already loaded when the program starts.
 void menu() {
     std::cout << "\n=== MINI KERNEL SIMULATOR ===\n"
               << " 1. Enter processes manually\n 2. Load sample processes\n"
@@ -990,7 +941,6 @@ void menu() {
               << "13. Compare disk schedulers\n14. Exit\nChoice: ";
 }
 
-// Dispatch one menu selection and catch bad input without ending the simulator.
 int main() {
     std::vector<PCB> processes = sampleProcesses();
     std::vector<int> references = memory::sampleReferences();
@@ -1014,7 +964,8 @@ int main() {
                     break;
                 case 3: {
                     int a = askInteger("Algorithm 1=FCFS 2=SJF 3=SRTF 4=Priority 5=RR [1]: ", 1, 5, 1);
-                    int quantum = a == 5 ? askInteger("RR quantum [3]: ", 1, 1000, 3) : 3;
+                    int quantum = 3;
+                    if (a == 5) quantum = askInteger("RR quantum [3]: ", 1, 1000, 3);
                     cpu::run(processes, static_cast<cpu::Algorithm>(a - 1), quantum);
                     break;
                 }
@@ -1066,7 +1017,7 @@ int main() {
     }
     return 0;
 }
-```
+````
 
 ## Build and run
 
@@ -1156,14 +1107,16 @@ The four scheduler values are average waiting, turnaround, response, and dispatc
 ## web/index.html
 
 ````html
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Mini Kernel Simulator</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
-/* Layout: one tool page. Header with tabs, then a working panel per kernel module (controls, chart, tables, log). */
 :root {
   --bg: #f1f4f7;
   --surface: #ffffff;
@@ -1244,7 +1197,6 @@ td.num, th.num { text-align: right; }
 .stat b { font-family: var(--font-data); font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat span { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
 
-/* Gantt */
 .gantt-scroll { overflow-x: auto; padding-bottom: 6px; }
 .gantt { position: relative; height: 44px; background: var(--idle); border-radius: 4px; }
 .seg {
@@ -1260,7 +1212,6 @@ td.num, th.num { text-align: right; }
 .player input[type="range"] { flex: 1 1 200px; padding: 0; accent-color: var(--accent); }
 .clock { font-family: var(--font-data); font-weight: 700; min-width: 5.5em; }
 
-/* Log */
 .log { font-family: var(--font-data); font-size: 0.82rem; max-height: 300px; overflow: auto; display: grid; gap: 2px; }
 .log div { padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
 .log .t { color: var(--muted); display: inline-block; min-width: 4.4em; }
@@ -1271,7 +1222,6 @@ td.num, th.num { text-align: right; }
 .st-NEW { color: var(--muted); font-weight: 700; }
 tr.best td { color: var(--good); font-weight: 700; }
 
-/* Paging */
 td.fault, td.hit { text-align: center; font-weight: 700; }
 td.fault { color: var(--bad); }
 td.hit { color: var(--good); }
@@ -1294,6 +1244,8 @@ td.hit { color: var(--good); }
 .pill.good { color: var(--good); }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 </style>
+</head>
+<body>
 
 <div class="wrap">
   <header>
@@ -1309,7 +1261,6 @@ td.hit { color: var(--good); }
     <button class="tab" role="tab" id="tabbtn-disk" aria-selected="false" aria-controls="tab-disk">Disk scheduling</button>
   </div>
 
-  <!-- CPU SCHEDULING -->
   <section class="panel" id="tab-sched" role="tabpanel" aria-labelledby="tabbtn-sched">
     <div class="card">
       <h2>Processes (PCB table)</h2>
@@ -1362,7 +1313,6 @@ td.hit { color: var(--good); }
     </div>
   </section>
 
-  <!-- PAGING -->
   <section class="panel" id="tab-page" role="tabpanel" aria-labelledby="tabbtn-page" hidden>
     <div class="card">
       <h2>Demand paging</h2>
@@ -1394,7 +1344,6 @@ td.hit { color: var(--good); }
     </div>
   </section>
 
-  <!-- DEADLOCK -->
   <section class="panel" id="tab-bank" role="tabpanel" aria-labelledby="tabbtn-bank" hidden>
     <div class="card">
       <h2>Banker's algorithm: system state</h2>
@@ -1422,7 +1371,6 @@ td.hit { color: var(--good); }
       <div class="log" id="bank-trace"></div>
     </div>
   </section>
-  <!-- Reserved headings for the next project phase. -->
   <section class="panel" id="tab-sync" role="tabpanel" aria-labelledby="tabbtn-sync" hidden>
     <div class="card"><h2>Synchronization</h2></div>
   </section>
@@ -1432,7 +1380,6 @@ td.hit { color: var(--good); }
 </div>
 
 <script>
-// CORE-START (pure logic, same algorithms as the C++ simulator)
 function runScheduler(input, algo, q) {
   const procs = input.map(p => Object.assign({}, p, { remaining: p.burst, state: 'NEW', finish: -1, response: -1 }));
   const n = procs.length, ready = [], gantt = [], log = [];
@@ -1565,8 +1512,6 @@ function bankRequest(s, pid, req) {
   return { status: 'no', text: 'Denied. Granting this leaves the system in an unsafe state, so deadlock would be possible.' };
 }
 
-// CORE-END
-
 (function () {
   const COLORS = 8;
   const SAMPLE = [
@@ -1582,7 +1527,6 @@ function bankRequest(s, pid, req) {
   const fmt = x => x.toFixed(2);
   const col = i => 'var(--p' + (i % COLORS) + ')';
 
-  /* ---------- tabs ---------- */
   const tabs = ['sched', 'page', 'bank', 'sync', 'disk'];
   tabs.forEach(k => {
     $('tabbtn-' + k).addEventListener('click', () => {
@@ -1593,7 +1537,6 @@ function bankRequest(s, pid, req) {
     });
   });
 
-  /* ---------- scheduling ---------- */
   let procs = SAMPLE.map(p => Object.assign({}, p));
   let result = null, tNow = 0, timer = null;
 
@@ -1733,7 +1676,6 @@ function bankRequest(s, pid, req) {
   });
   $('reset-proc').addEventListener('click', () => { procs = SAMPLE.map(p => Object.assign({}, p)); buildProcTable(); recompute(true); });
 
-  /* ---------- paging ---------- */
   function parseRefs() {
     return $('refs').value.split(/[\s,]+/).filter(Boolean).map(Number).filter(x => Number.isInteger(x) && x >= 0).slice(0, 40);
   }
@@ -1771,7 +1713,6 @@ function bankRequest(s, pid, req) {
   }
   ['refs', 'frames', 'palgo'].forEach(id => $(id).addEventListener('input', renderPaging));
 
-  /* ---------- banker's ---------- */
   let bank = bankSample();
   const RES = ['A', 'B', 'C'];
   function renderBank() {
@@ -1812,7 +1753,6 @@ function bankRequest(s, pid, req) {
   });
   $('req-reset').addEventListener('click', () => { bank = bankSample(); $('bank-msg').className = ''; $('bank-msg').textContent = ''; renderBank(); });
 
-  /* ---------- start ---------- */
   buildProcTable();
   recompute(true);
   renderPaging();
@@ -1820,5 +1760,6 @@ function bankRequest(s, pid, req) {
 })();
 </script>
 
-</body></html>
+</body>
+</html>
 ````

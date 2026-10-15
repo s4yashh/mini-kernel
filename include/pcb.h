@@ -7,7 +7,6 @@
 
 enum class State { NEW, READY, RUNNING, WAITING, TERMINATED };
 
-// Convert an internal process state to the word printed in the kernel trace.
 inline const char* stateName(State state) {
     switch (state) {
         case State::NEW: return "NEW";
@@ -27,7 +26,6 @@ struct PCB {
     int finish = -1, response = -1, waiting = 0, turnaround = 0;
 };
 
-// Change state once and, when requested, show the exact simulated clock time.
 inline void setState(PCB& process, State next, int time, bool verbose = true,
                      std::ostream& out = std::cout) {
     if (process.state == next) return;
@@ -37,7 +35,6 @@ inline void setState(PCB& process, State next, int time, bool verbose = true,
     process.state = next;
 }
 
-// Return fresh PCBs so each algorithm starts from identical input.
 inline std::vector<PCB> sampleProcesses() {
     return {{1, "init", 0, 8, 8, 3}, {2, "editor", 1, 4, 4, 1},
             {3, "compiler", 2, 9, 9, 4}, {4, "browser", 3, 5, 5, 2},

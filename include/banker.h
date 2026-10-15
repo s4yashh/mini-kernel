@@ -17,7 +17,6 @@ class Banker {
     Vector available_;
     Matrix maximum_, allocation_, need_;
 public:
-    // Compute Need = Maximum - Allocation and reject malformed resource tables.
     Banker(Vector available, Matrix maximum, Matrix allocation)
         : available_(available), maximum_(maximum), allocation_(allocation) {
         if (available_.empty() || maximum_.empty() || maximum_.size() != allocation_.size())
@@ -36,8 +35,6 @@ public:
         }
     }
 
-    // Find an unfinished process whose remaining Need fits Work; pretend it finishes
-    // and releases its Allocation, then repeat until all finish or no one can.
     Safety safety(bool verbose = true, std::ostream& out = std::cout) const {
         Vector work = available_;
         std::vector<bool> finished(need_.size(), false);
@@ -75,7 +72,6 @@ public:
         return answer;
     }
 
-    // Try a request on a temporary copy. Commit only if the safety check still succeeds.
     Decision request(std::size_t pid, const Vector& amount, bool verbose = true,
                      std::ostream& out = std::cout) {
         if (pid >= need_.size() || amount.size() != available_.size())
@@ -107,18 +103,16 @@ public:
     }
 };
 
-// The standard five-process example from Operating Systems textbooks.
 inline Banker sample() {
     return Banker({3,3,2}, {{7,5,3},{3,2,2},{9,0,2},{2,2,2},{4,3,3}},
                   {{0,1,0},{2,0,0},{3,0,2},{2,1,1},{0,0,2}});
 }
 
-// Requests are applied in order to the same state, as in a real running system.
 inline void requestDemo(std::ostream& out = std::cout) {
     Banker b = sample();
     b.request(1, {1,0,2}, true, out);
     b.request(4, {3,3,0}, true, out);
     b.request(0, {0,2,0}, true, out);
 }
-} // namespace banker
+}
 #endif

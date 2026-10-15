@@ -1,11 +1,13 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Mini Kernel Simulator</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
-/* Layout: one tool page. Header with tabs, then a working panel per kernel module (controls, chart, tables, log). */
 :root {
   --bg: #f1f4f7;
   --surface: #ffffff;
@@ -86,7 +88,6 @@ td.num, th.num { text-align: right; }
 .stat b { font-family: var(--font-data); font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat span { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
 
-/* Gantt */
 .gantt-scroll { overflow-x: auto; padding-bottom: 6px; }
 .gantt { position: relative; height: 44px; background: var(--idle); border-radius: 4px; }
 .seg {
@@ -102,7 +103,6 @@ td.num, th.num { text-align: right; }
 .player input[type="range"] { flex: 1 1 200px; padding: 0; accent-color: var(--accent); }
 .clock { font-family: var(--font-data); font-weight: 700; min-width: 5.5em; }
 
-/* Log */
 .log { font-family: var(--font-data); font-size: 0.82rem; max-height: 300px; overflow: auto; display: grid; gap: 2px; }
 .log div { padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
 .log .t { color: var(--muted); display: inline-block; min-width: 4.4em; }
@@ -113,7 +113,6 @@ td.num, th.num { text-align: right; }
 .st-NEW { color: var(--muted); font-weight: 700; }
 tr.best td { color: var(--good); font-weight: 700; }
 
-/* Paging */
 td.fault, td.hit { text-align: center; font-weight: 700; }
 td.fault { color: var(--bad); }
 td.hit { color: var(--good); }
@@ -136,6 +135,8 @@ td.hit { color: var(--good); }
 .pill.good { color: var(--good); }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 </style>
+</head>
+<body>
 
 <div class="wrap">
   <header>
@@ -151,7 +152,6 @@ td.hit { color: var(--good); }
     <button class="tab" role="tab" id="tabbtn-disk" aria-selected="false" aria-controls="tab-disk">Disk scheduling</button>
   </div>
 
-  <!-- CPU SCHEDULING -->
   <section class="panel" id="tab-sched" role="tabpanel" aria-labelledby="tabbtn-sched">
     <div class="card">
       <h2>Processes (PCB table)</h2>
@@ -204,7 +204,6 @@ td.hit { color: var(--good); }
     </div>
   </section>
 
-  <!-- PAGING -->
   <section class="panel" id="tab-page" role="tabpanel" aria-labelledby="tabbtn-page" hidden>
     <div class="card">
       <h2>Demand paging</h2>
@@ -236,7 +235,6 @@ td.hit { color: var(--good); }
     </div>
   </section>
 
-  <!-- DEADLOCK -->
   <section class="panel" id="tab-bank" role="tabpanel" aria-labelledby="tabbtn-bank" hidden>
     <div class="card">
       <h2>Banker's algorithm: system state</h2>
@@ -264,7 +262,6 @@ td.hit { color: var(--good); }
       <div class="log" id="bank-trace"></div>
     </div>
   </section>
-  <!-- Reserved headings for the next project phase. -->
   <section class="panel" id="tab-sync" role="tabpanel" aria-labelledby="tabbtn-sync" hidden>
     <div class="card"><h2>Synchronization</h2></div>
   </section>
@@ -274,7 +271,6 @@ td.hit { color: var(--good); }
 </div>
 
 <script>
-// CORE-START (pure logic, same algorithms as the C++ simulator)
 function runScheduler(input, algo, q) {
   const procs = input.map(p => Object.assign({}, p, { remaining: p.burst, state: 'NEW', finish: -1, response: -1 }));
   const n = procs.length, ready = [], gantt = [], log = [];
@@ -407,8 +403,6 @@ function bankRequest(s, pid, req) {
   return { status: 'no', text: 'Denied. Granting this leaves the system in an unsafe state, so deadlock would be possible.' };
 }
 
-// CORE-END
-
 (function () {
   const COLORS = 8;
   const SAMPLE = [
@@ -424,7 +418,6 @@ function bankRequest(s, pid, req) {
   const fmt = x => x.toFixed(2);
   const col = i => 'var(--p' + (i % COLORS) + ')';
 
-  /* ---------- tabs ---------- */
   const tabs = ['sched', 'page', 'bank', 'sync', 'disk'];
   tabs.forEach(k => {
     $('tabbtn-' + k).addEventListener('click', () => {
@@ -435,7 +428,6 @@ function bankRequest(s, pid, req) {
     });
   });
 
-  /* ---------- scheduling ---------- */
   let procs = SAMPLE.map(p => Object.assign({}, p));
   let result = null, tNow = 0, timer = null;
 
@@ -575,7 +567,6 @@ function bankRequest(s, pid, req) {
   });
   $('reset-proc').addEventListener('click', () => { procs = SAMPLE.map(p => Object.assign({}, p)); buildProcTable(); recompute(true); });
 
-  /* ---------- paging ---------- */
   function parseRefs() {
     return $('refs').value.split(/[\s,]+/).filter(Boolean).map(Number).filter(x => Number.isInteger(x) && x >= 0).slice(0, 40);
   }
@@ -613,7 +604,6 @@ function bankRequest(s, pid, req) {
   }
   ['refs', 'frames', 'palgo'].forEach(id => $(id).addEventListener('input', renderPaging));
 
-  /* ---------- banker's ---------- */
   let bank = bankSample();
   const RES = ['A', 'B', 'C'];
   function renderBank() {
@@ -654,7 +644,6 @@ function bankRequest(s, pid, req) {
   });
   $('req-reset').addEventListener('click', () => { bank = bankSample(); $('bank-msg').className = ''; $('bank-msg').textContent = ''; renderBank(); });
 
-  /* ---------- start ---------- */
   buildProcTable();
   recompute(true);
   renderPaging();
@@ -662,4 +651,5 @@ function bankRequest(s, pid, req) {
 })();
 </script>
 
-</body></html>
+</body>
+</html>

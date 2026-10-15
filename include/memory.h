@@ -1,10 +1,8 @@
 #ifndef MINI_KERNEL_MEMORY_H
 #define MINI_KERNEL_MEMORY_H
 
-#include <algorithm>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -13,13 +11,13 @@ namespace memory {
 
 enum class Algorithm { FIFO, LRU, OPTIMAL };
 inline const char* name(Algorithm a) {
-    return a == Algorithm::FIFO ? "FIFO" : a == Algorithm::LRU ? "LRU" : "Optimal";
+    if (a == Algorithm::FIFO) return "FIFO";
+    if (a == Algorithm::LRU) return "LRU";
+    return "Optimal";
 }
 
 struct Result { int faults = 0, hits = 0; double faultRate = 0; };
 
-// Replace on a miss: oldest insertion for FIFO, oldest use for LRU,
-// or farthest future use for Optimal. Hits never advance FIFO insertion age.
 inline Result run(const std::vector<int>& references, int frameCount, Algorithm algorithm,
                   bool verbose = true, std::ostream& out = std::cout) {
     if (frameCount <= 0) throw std::invalid_argument("Frame count must be positive");
@@ -41,8 +39,10 @@ inline Result run(const std::vector<int>& references, int frameCount, Algorithm 
                 if (frames[j] == -1) { slot = j; break; }
             if (slot < 0 && algorithm == Algorithm::FIFO) slot = fifoNext;
             if (slot < 0 && algorithm == Algorithm::LRU) {
-                slot = static_cast<int>(std::min_element(lastUsed.begin(), lastUsed.end())
-                                        - lastUsed.begin());
+                slot = 0;
+                for (int j = 1; j < frameCount; ++j) {
+                    if (lastUsed[j] < lastUsed[slot]) slot = j;
+                }
             }
             if (slot < 0 && algorithm == Algorithm::OPTIMAL) {
                 int farthest = -1;
@@ -74,7 +74,6 @@ inline Result run(const std::vector<int>& references, int frameCount, Algorithm 
     return result;
 }
 
-// Compare policies using the same reference string and frame count.
 inline void compare(const std::vector<int>& references, int frameCount,
                     std::ostream& out = std::cout) {
     out << "\nAlgorithm Faults Hits Fault rate\n";
@@ -90,5 +89,5 @@ inline std::vector<int> sampleReferences() {
     return {7,0,1,2,0,3,0,4,2,3,0,3,2,1,2,0,1,7,0,1};
 }
 
-} // namespace memory
+}
 #endif

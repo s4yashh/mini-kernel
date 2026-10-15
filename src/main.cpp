@@ -6,13 +6,11 @@
 #include "sync.h"
 
 #include <iostream>
-#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-// Parse one whole line as one integer; extra characters count as bad input.
 int parseInteger(const std::string& line, int minimum, int maximum) {
     std::istringstream in(line);
     int value;
@@ -22,38 +20,34 @@ int parseInteger(const std::string& line, int minimum, int maximum) {
     return value;
 }
 
-// Keep prompting after nonnumeric input; Enter selects a documented default.
 int askInteger(const std::string& prompt, int minimum, int maximum,
-               std::optional<int> defaultValue = std::nullopt) {
+               int defaultValue = -1) {
     while (true) {
         std::cout << prompt;
         std::string line;
         if (!std::getline(std::cin, line)) throw std::runtime_error("Input ended");
-        if (line.empty() && defaultValue) return *defaultValue;
+        if (line.empty() && defaultValue >= minimum) return defaultValue;
         try { return parseInteger(line, minimum, maximum); }
         catch (const std::invalid_argument& error) { std::cout << error.what() << '\n'; }
     }
 }
 
-// Read exactly the requested count of nonnegative page references.
 std::vector<int> askReferences() {
     int count = askInteger("Number of references (1..100): ", 1, 100);
     while (true) {
         std::cout << "Enter " << count << " nonnegative page numbers, space separated: ";
         std::string line; if (!std::getline(std::cin, line)) throw std::runtime_error("Input ended");
-        std::istringstream in(line);
+        std::istringstream input(line);
         std::vector<int> values;
-        int page; while (in >> page) values.push_back(page);
-        std::string extra;
-        if (values.size() == static_cast<std::size_t>(count) && !(in.clear(), in >> extra)) {
-            bool valid = true; for (int x : values) if (x < 0) valid = false;
-            if (valid) return values;
-        }
+        int page;
+        while (input >> page) values.push_back(page);
+        bool valid = input.eof() && values.size() == static_cast<std::size_t>(count);
+        for (int value : values) if (value < 0) valid = false;
+        if (valid) return values;
         std::cout << "Invalid reference list. Try again.\n";
     }
 }
 
-// Accept one process per line and replace the active process set only when all are valid.
 std::vector<PCB> askProcesses() {
     int count = askInteger("Number of processes (1..20): ", 1, 20);
     std::vector<PCB> processes;
@@ -76,7 +70,6 @@ std::vector<PCB> askProcesses() {
     return processes;
 }
 
-// Present numbered actions; sample data is already loaded when the program starts.
 void menu() {
     std::cout << "\n=== MINI KERNEL SIMULATOR ===\n"
               << " 1. Enter processes manually\n 2. Load sample processes\n"
@@ -88,7 +81,6 @@ void menu() {
               << "13. Compare disk schedulers\n14. Exit\nChoice: ";
 }
 
-// Dispatch one menu selection and catch bad input without ending the simulator.
 int main() {
     std::vector<PCB> processes = sampleProcesses();
     std::vector<int> references = memory::sampleReferences();
@@ -112,7 +104,8 @@ int main() {
                     break;
                 case 3: {
                     int a = askInteger("Algorithm 1=FCFS 2=SJF 3=SRTF 4=Priority 5=RR [1]: ", 1, 5, 1);
-                    int quantum = a == 5 ? askInteger("RR quantum [3]: ", 1, 1000, 3) : 3;
+                    int quantum = 3;
+                    if (a == 5) quantum = askInteger("RR quantum [3]: ", 1, 1000, 3);
                     cpu::run(processes, static_cast<cpu::Algorithm>(a - 1), quantum);
                     break;
                 }
