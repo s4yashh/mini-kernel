@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.10)
+project(MiniKernelSimulator LANGUAGES CXX)
+
+add_executable(mini_kernel src/main.cpp)
+target_include_directories(mini_kernel PRIVATE include)
+target_compile_features(mini_kernel PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(mini_kernel PRIVATE /W4)
+else()
+    target_compile_options(mini_kernel PRIVATE -Wall -Wextra)
+endif()
