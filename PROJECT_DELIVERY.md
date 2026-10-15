@@ -42,7 +42,8 @@ Implemented: PCB states and transitions; five CPU schedulers; FIFO, LRU, and Opt
 | `include/sync.h` | Simulated semaphores and synchronization demos |
 | `include/disk.h` | Disk head paths and seek comparison |
 | `src/main.cpp` | Menu, sample data and input validation |
-| `web/index.html` | Self-contained browser interface with the same Review 1 demos |
+| `web/index.html` | Browser demo for CPU scheduling, paging and Banker; synchronization and disk are heading-only tabs |
+| `docs/Module_Topics_Used.docx` | Concise faculty table of BCSE303L module numbers and project topics |
 
 ## Build and run
 
@@ -71,7 +72,7 @@ Run `build/mini_kernel` on Linux/macOS or `build\Debug\mini_kernel.exe` (multi-c
 
 ## Web interface
 
-Open `web/index.html` in any modern browser. It is one HTML file with embedded CSS and JavaScript; no package installation or server is needed. The browser independently runs the same textbook simulations with sample data or custom inputs. It does not execute the C++ binary, so use the console build when demonstrating the C++ implementation.
+Open `web/index.html` in any modern browser. It is one HTML file with embedded CSS and JavaScript; no package installation or server is needed. CPU scheduling, paging and Banker's algorithm have working browser demos. Synchronization and disk scheduling appear only as headings for the next web phase. The browser does not execute the C++ binary.
 
 ## Sample checkpoints
 
@@ -84,6 +85,7 @@ Open `web/index.html` in any modern browser. It is one HTML file with embedded C
 - Menu 13: FCFS 640, SSTF 236, SCAN 236, C-SCAN 382 cylinders.
 
 SCAN starts toward cylinder zero. C-SCAN starts toward cylinder 199 and counts the return from 199 to 0. Averages divide movement by eight requests. The sample data is loaded at startup, so the comparison and demonstration options can run immediately.
+# mini-kernel
 ````
 
 ## include/pcb.h
@@ -1290,12 +1292,6 @@ td.hit { color: var(--good); }
 .pill { padding: 3px 9px; border-radius: 999px; background: var(--idle); }
 .pill.bad { color: var(--bad); }
 .pill.good { color: var(--good); }
-.buffer { display: flex; gap: 6px; margin-top: 12px; }
-.buffer-slot { width: 56px; height: 44px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-family: var(--font-data); font-weight: 700; }
-.buffer-slot.filled { border-color: var(--accent); color: var(--accent); }
-.path { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-family: var(--font-data); font-size: 0.82rem; }
-.path span { padding: 5px 8px; border-radius: 5px; background: var(--idle); }
-.path i { font-style: normal; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 </style>
 
@@ -1426,44 +1422,12 @@ td.hit { color: var(--good); }
       <div class="log" id="bank-trace"></div>
     </div>
   </section>
-  <!-- SYNCHRONIZATION -->
+  <!-- Reserved headings for the next project phase. -->
   <section class="panel" id="tab-sync" role="tabpanel" aria-labelledby="tabbtn-sync" hidden>
-    <div class="card">
-      <h2>Process synchronization</h2>
-      <div class="row">
-        <button class="btn primary" id="sync-pc" type="button">Producer–consumer demo</button>
-        <button class="btn" id="sync-dining" type="button">Dining philosophers demo</button>
-      </div>
-      <p class="note" style="margin-top:12px">These are deterministic, single-threaded simulations. Wait and signal use a blocked queue; no real threads run.</p>
-    </div>
-    <div class="grid2">
-      <div class="card"><h2>Current state</h2><div id="sync-state"></div><div class="stats" id="sync-stats"></div></div>
-      <div class="card"><h2>Step-by-step event log</h2><div class="log" id="sync-log"></div></div>
-    </div>
+    <div class="card"><h2>Synchronization</h2></div>
   </section>
-
-  <!-- DISK SCHEDULING -->
   <section class="panel" id="tab-disk" role="tabpanel" aria-labelledby="tabbtn-disk" hidden>
-    <div class="card">
-      <h2>Disk requests</h2>
-      <div class="row">
-        <label>Request queue (space separated)
-          <input class="wide" type="text" id="disk-req" value="98 183 37 122 14 124 65 67">
-        </label>
-        <label>Initial head <input type="number" id="disk-head" value="53" min="0"></label>
-        <label>Disk size <input type="number" id="disk-size" value="200" min="1"></label>
-        <label>Algorithm
-          <select id="disk-algo"><option>FCFS</option><option>SSTF</option><option>SCAN</option><option>C-SCAN</option></select>
-        </label>
-      </div>
-      <p class="note" style="margin-top:10px">SCAN moves toward cylinder 0 first. C-SCAN moves upward and counts the return jump from the last cylinder to 0.</p>
-      <div id="disk-error" role="status"></div>
-    </div>
-    <div class="grid2">
-      <div class="card"><h2>Service order</h2><div class="path" id="disk-order"></div><div class="stats" id="disk-stats"></div></div>
-      <div class="card"><h2>Head path</h2><div class="path" id="disk-path"></div><p class="note" style="margin-top:12px">The head path includes travel to disk edges; service order lists requests only.</p></div>
-    </div>
-    <div class="card"><h2>All disk algorithms on the same requests</h2><div class="scroll"><table id="disk-compare"></table></div></div>
+    <div class="card"><h2>Disk scheduling</h2></div>
   </section>
 </div>
 
@@ -1601,82 +1565,6 @@ function bankRequest(s, pid, req) {
   return { status: 'no', text: 'Denied. Granting this leaves the system in an unsafe state, so deadlock would be possible.' };
 }
 
-// A semaphore hands a released permit directly to the first blocked process.
-function runProducerConsumer() {
-  const buffer = [], empty = { value: 2, blocked: [] }, full = { value: 0, blocked: [] };
-  const mutex = { value: 1, blocked: [] }, pending = new Map(), steps = [];
-  const record = event => steps.push({ event, buffer: buffer.slice(), empty: empty.value, full: full.value, mutex: mutex.value });
-  const wait = (sem, pid) => { if (sem.value > 0) { sem.value--; return true; } sem.blocked.push(pid); return false; };
-  const signal = sem => sem.blocked.length ? sem.blocked.shift() : (sem.value++, null);
-  function execute(pid, produce, item, reserved) {
-    const first = produce ? empty : full;
-    if (!reserved && !wait(first, pid)) {
-      pending.set(pid, { produce, item });
-      record(pid + ' BLOCKED: buffer ' + (produce ? 'full' : 'empty'));
-      return;
-    }
-    record(pid + (reserved ? ' resumes with reserved permit' : ' gets semaphore permit'));
-    wait(mutex, pid); record(pid + ' locks mutex');
-    if (produce) { buffer.push(item); record(pid + ' produces ' + item); }
-    else { const taken = buffer.shift(); record(pid + ' consumes ' + taken); }
-    signal(mutex); record(pid + ' unlocks mutex');
-    const woken = signal(produce ? full : empty);
-    record(pid + ' signals ' + (produce ? 'full' : 'empty') + (woken ? '; wakes ' + woken : ''));
-    if (woken) { const next = pending.get(woken); pending.delete(woken); execute(woken, next.produce, next.item, true); }
-  }
-  record('Initial state (capacity 2)');
-  execute('C1', false, 0, false); execute('P1', true, 10, false);
-  execute('P1', true, 20, false); execute('P1', true, 30, false);
-  execute('P2', true, 40, false); execute('C2', false, 0, false);
-  execute('C2', false, 0, false); execute('C2', false, 0, false);
-  return steps;
-}
-
-// The first fork policy forms a wait cycle; ordered acquisition breaks it.
-function runDining() {
-  const dead = [], fixed = [];
-  for (let p = 0; p < 5; p++) dead.push('P' + p + ' takes left fork ' + p);
-  for (let p = 0; p < 5; p++) dead.push('P' + p + ' BLOCKED on right fork ' + ((p + 1) % 5) + ' held by P' + ((p + 1) % 5));
-  dead.push('DEADLOCK: all five hold one fork and wait in a cycle.');
-  for (let p = 0; p < 4; p++) fixed.push('P' + p + ' takes lower fork ' + p);
-  fixed.push('P4 BLOCKED on lower fork 0 held by P0');
-  for (let p = 0; p < 3; p++) fixed.push('P' + p + ' BLOCKED on fork ' + (p + 1) + ' held by P' + (p + 1));
-  fixed.push('P3 takes fork 4');
-  for (let p = 3; p >= 0; p--) {
-    fixed.push('P' + p + ' eats and releases forks ' + p + ' and ' + (p + 1));
-    if (p > 0) fixed.push('P' + (p - 1) + ' wakes and takes fork ' + p);
-  }
-  fixed.push('P4 wakes and takes fork 0', 'P4 takes fork 4', 'P4 eats and releases forks 0 and 4', 'All five eat; resource ordering prevents circular wait.');
-  return { dead, fixed };
-}
-
-// Keep service order separate from physical head travel through disk edges.
-function runDisk(requests, head, size, algo) {
-  const order = [], path = [head]; let total = 0;
-  const move = x => { total += Math.abs(path[path.length - 1] - x); if (path[path.length - 1] !== x) path.push(x); };
-  const service = x => { move(x); order.push(x); };
-  if (algo === 'FCFS') requests.forEach(service);
-  else if (algo === 'SSTF') {
-    const left = requests.slice();
-    while (left.length) {
-      const at = path[path.length - 1];
-      left.sort((a, b) => Math.abs(a - at) - Math.abs(b - at) || a - b);
-      service(left.shift());
-    }
-  } else {
-    const low = requests.filter(x => x < head).sort((a, b) => a - b);
-    const high = requests.filter(x => x >= head).sort((a, b) => a - b);
-    if (algo === 'SCAN') {
-      low.reverse().forEach(service);
-      if (high.length) move(0);
-      high.forEach(service);
-    } else {
-      high.forEach(service);
-      if (low.length) { move(size - 1); move(0); low.forEach(service); }
-    }
-  }
-  return { order, path, total, average: requests.length ? total / requests.length : 0 };
-}
 // CORE-END
 
 (function () {
@@ -1924,89 +1812,11 @@ function runDisk(requests, head, size, algo) {
   });
   $('req-reset').addEventListener('click', () => { bank = bankSample(); $('bank-msg').className = ''; $('bank-msg').textContent = ''; renderBank(); });
 
-  /* ---------- synchronization ---------- */
-  function renderPC() {
-    const steps = runProducerConsumer(), last = steps[steps.length - 1];
-    const state = $('sync-state'); state.innerHTML = '';
-    state.appendChild(el('p', 'note', 'Bounded buffer · capacity 2 · completed sample run'));
-    const slots = el('div', 'buffer');
-    for (let i = 0; i < 2; i++) slots.appendChild(el('div', 'buffer-slot' + (i < last.buffer.length ? ' filled' : ''), i < last.buffer.length ? String(last.buffer[i]) : '·'));
-    state.appendChild(slots);
-    const stats = $('sync-stats'); stats.innerHTML = '';
-    [['Empty', last.empty], ['Full', last.full], ['Mutex', last.mutex]].forEach(([key, value]) => {
-      const d = el('div', 'stat'); d.appendChild(el('b', '', String(value))); d.appendChild(el('span', '', key)); stats.appendChild(d);
-    });
-    const log = $('sync-log'); log.innerHTML = '';
-    steps.forEach((step, i) => {
-      log.appendChild(el('div', '', 'Step ' + (i + 1) + ': ' + step.event + ' | buffer=[' + step.buffer.join(',') + '] empty=' + step.empty + ' full=' + step.full + ' mutex=' + step.mutex));
-    });
-  }
-  function renderDining() {
-    const result = runDining(), state = $('sync-state'), stats = $('sync-stats'), log = $('sync-log');
-    state.innerHTML = ''; stats.innerHTML = ''; log.innerHTML = '';
-    state.appendChild(el('p', 'note', 'Five philosophers share five forks. The first policy deadlocks; the fixed policy orders fork acquisition.'));
-    const summary = el('div', 'seq'); summary.appendChild(el('span', 'pill bad', 'DEADLOCK'));
-    summary.appendChild(el('i', '', '→')); summary.appendChild(el('span', 'pill good', 'ALL FIVE EAT'));
-    state.appendChild(summary);
-    log.appendChild(el('div', '', 'LEFT FORK FIRST'));
-    result.dead.forEach(line => log.appendChild(el('div', '', line)));
-    log.appendChild(el('div', '', 'LOWER-NUMBERED FORK FIRST'));
-    result.fixed.forEach(line => log.appendChild(el('div', '', line)));
-  }
-  $('sync-pc').addEventListener('click', renderPC);
-  $('sync-dining').addEventListener('click', renderDining);
-
-  /* ---------- disk scheduling ---------- */
-  function diskInput() {
-    const text = $('disk-req').value.trim();
-    const tokens = text.split(/[\s,]+/).filter(Boolean);
-    if (!tokens.length || tokens.length > 100) throw Error('Enter 1 to 100 disk requests.');
-    const valid = value => /^\d+$/.test(value) && Number.isSafeInteger(Number(value));
-    if (tokens.some(x => !valid(x))) throw Error('Requests must be nonnegative integers.');
-    const headText = $('disk-head').value.trim(), sizeText = $('disk-size').value.trim();
-    if (!valid(headText) || !valid(sizeText)) throw Error('Head position and disk size must be integers.');
-    const requests = tokens.map(Number), head = Number(headText), size = Number(sizeText);
-    if (size < 1 || size > 100000 || head >= size || requests.some(x => x >= size))
-      throw Error('Use disk size 1–100000; head and requests must lie on the disk.');
-    return { requests, head, size };
-  }
-  function renderPath(id, values) {
-    const box = $(id); box.innerHTML = '';
-    values.forEach((value, i) => { if (i) box.appendChild(el('i', '', '→')); box.appendChild(el('span', '', String(value))); });
-  }
-  function renderDisk() {
-    try {
-      const { requests, head, size } = diskInput(), name = $('disk-algo').value;
-      const result = runDisk(requests, head, size, name);
-      $('disk-error').className = ''; $('disk-error').textContent = '';
-      renderPath('disk-order', result.order);
-      renderPath('disk-path', result.path);
-      const stats = $('disk-stats'); stats.innerHTML = '';
-      [['Total movement', result.total], ['Avg seek/request', result.average.toFixed(2)]].forEach(([key, value]) => {
-        const d = el('div', 'stat'); d.appendChild(el('b', '', String(value))); d.appendChild(el('span', '', key)); stats.appendChild(d);
-      });
-      const tb = $('disk-compare'); tb.innerHTML = '';
-      const h = el('tr'); ['Algorithm', 'Service order', 'Movement', 'Avg seek'].forEach(x => h.appendChild(el('th', '', x))); tb.appendChild(h);
-      ['FCFS', 'SSTF', 'SCAN', 'C-SCAN'].forEach(algo => {
-        const r = runDisk(requests, head, size, algo), row = el('tr');
-        [algo, r.order.join(' → '), String(r.total), r.average.toFixed(2)].forEach(x => row.appendChild(el('td', '', x)));
-        tb.appendChild(row);
-      });
-    } catch (error) {
-      $('disk-error').className = 'msg no'; $('disk-error').textContent = error.message;
-      $('disk-order').innerHTML = ''; $('disk-path').innerHTML = '';
-      $('disk-stats').innerHTML = ''; $('disk-compare').innerHTML = '';
-    }
-  }
-  ['disk-req', 'disk-head', 'disk-size', 'disk-algo'].forEach(id => $(id).addEventListener('input', renderDisk));
-
   /* ---------- start ---------- */
   buildProcTable();
   recompute(true);
   renderPaging();
   renderBank();
-  renderPC();
-  renderDisk();
 })();
 </script>
 

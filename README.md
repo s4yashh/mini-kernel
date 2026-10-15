@@ -19,7 +19,7 @@ Implemented: PCB states and transitions; five CPU schedulers; FIFO, LRU, and Opt
 | `include/sync.h` | Simulated semaphores and synchronization demos |
 | `include/disk.h` | Disk head paths and seek comparison |
 | `src/main.cpp` | Menu, sample data and input validation |
-| `web/index.html` | Self-contained browser interface with the same Review 1 demos |
+| `web/index.html` | Browser demo for CPU scheduling, paging and Banker; synchronization and disk are heading-only tabs |
 | `docs/Module_Topics_Used.docx` | Concise faculty table of BCSE303L module numbers and project topics |
 
 ## Build and run
@@ -49,7 +49,7 @@ Run `build/mini_kernel` on Linux/macOS or `build\Debug\mini_kernel.exe` (multi-c
 
 ## Web interface
 
-Open `web/index.html` in any modern browser. It is one HTML file with embedded CSS and JavaScript; no package installation or server is needed. The browser independently runs the same textbook simulations with sample data or custom inputs. It does not execute the C++ binary, so use the console build when demonstrating the C++ implementation.
+Open `web/index.html` in any modern browser. It is one HTML file with embedded CSS and JavaScript; no package installation or server is needed. CPU scheduling, paging and Banker's algorithm have working browser demos. Synchronization and disk scheduling appear only as headings for the next web phase. The browser does not execute the C++ binary.
 
 ## Sample checkpoints
 
