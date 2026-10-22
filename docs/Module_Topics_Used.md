@@ -1,28 +1,19 @@
-# Mini Kernel Simulator — Syllabus Modules and Topics
+# Mini Kernel Simulator — Syllabus Topic Mapping
 
-**Course:** BCSE303L Operating Systems  
-**Stage:** Review 1 (approximately 50% implemented)
+**Course:** BCSE303L Operating Systems (syllabus version 1.0)
 
-## Topics used in the current project
+**Status:** Complete implementation of the defined educational simulator scope. The simulator models concepts; it is not a real operating system.
 
-| Module No. and name | Syllabus topic used | Project implementation |
+| Course module | Syllabus concepts represented | Project implementation |
 | --- | --- | --- |
-| **2 — OS Principles** | **Processes; Process Control Block; Ready List** | PCB fields, process states and transition log. |
-| **3 — Scheduling** | **Process scheduling; pre-emptive and non-pre-emptive CPU scheduling** | FCFS, SJF, SRTF, Priority and Round Robin; Gantt chart and metrics. |
-| **3 — Scheduling** | **Deadlocks; resource allocation and management; deadlock avoidance** | Banker's safety and resource-request algorithms. |
-| **4 — Concurrency** | **Synchronization; semaphores; classical synchronization problems; dining philosophers problem** | Simulated semaphore/mutex, producer–consumer and dining philosophers. The fixed solution uses resource ordering, not a monitor. |
-| **5 — Memory Management** | **Demand paging; page faults; page replacement** | FIFO, LRU and Optimal replacement with frame-by-frame logs. |
-| **7 — Storage Management, Protection and Security** | **Disk scheduling algorithms — seek time** | FCFS, SSTF, SCAN and C-SCAN; service order and head movement. Rotational latency is not modeled. |
+| **2 — OS Principles** | PCB, process states, process creation/management, system-call interface, interrupts, thread models | PCB/state transition logs; create, I/O block/wake, terminate; user/kernel trap explanation; many-to-one and one-to-one mapping illustration. |
+| **3 — Scheduling** | Preemptive/non-preemptive scheduling, resource management, deadlock avoidance/detection/recovery | FCFS, SJF, SRTF, Priority, RR, static MLQ and MLFQ; Banker safety/request; wait-for cycle and multi-instance detection; termination recovery. |
+| **4 — Concurrency** | IPC, synchronization primitives, semaphores, classical problems, mutual exclusion | Simulated semaphore/mutex; producer-consumer; dining philosophers; Peterson and Bakery traces; message queue and protected shared memory. |
+| **5 — Memory Management** | Main-memory allocation, paging, page replacement, segmentation, TLB, working set/thrashing | First/Best/Worst Fit and fragmentation; FIFO/LRU/Optimal; segmentation translation and bounds; LRU TLB; working-set pressure trace. |
+| **6 — Virtualization and File System Management** | File interface, directory structures, allocation, recovery/journaling | In-memory directories/files; sequential/direct reads; contiguous/linked/indexed blocks; owner access check; transaction journal and recovery example. |
+| **7 — Storage, Protection and Security** | Disk scheduling and basic access control | FCFS/SSTF/SCAN/C-SCAN paths; owner-based file access and privileged `admin` read. Rotational latency and full access-matrix/capability systems are not modeled. |
+| **1 — Introduction** | OS functionality, structures, abstractions and trade-offs | Problem statement and module explanations are in the README; architecture models are discussed, not emulated. |
 
-**Module 1 — Introduction** provides background concepts (*OS functionality; processes and resources*), but is not a separate implemented algorithm. **Modules 6 and 8 are not used in the current build.**
+**Out of simulator scope:** actual hypervisors/containers, real kernel calls, hardware devices, real parallel threads, multiprocessor scheduling, distributed filesystems, soft updates, and production-grade authentication/protection. These are outside the implemented demonstration scope and should not be presented as implemented.
 
-## Topics planned for the next 50%
-
-| Module No. | Syllabus topic | Planned addition |
-| --- | --- | --- |
-| **2** | Process creation and management | Simulated creation, termination and I/O-related WAITING/READY transitions. |
-| **3** | Deadlock detection and recovery | Detect blocked resource states and demonstrate recovery. |
-| **5** | Memory allocation strategies | First Fit, Best Fit and Worst Fit with fragmentation display. |
-| **6** | File system interface and implementation | Simple in-memory files, directories and block allocation. |
-
-*Source: “OPERATING-SYSTEMS (2).pdf”, BCSE303L syllabus version 1.0, Modules 1–8, pages 987–988.*
+*Source syllabus: `OPERATING-SYSTEMS (2).pdf`, BCSE303L, version 1.0, pages 987–988.*

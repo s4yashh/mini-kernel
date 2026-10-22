@@ -11,7 +11,7 @@
 
 namespace cpu {
 
-enum class Algorithm { FCFS, SJF, SRTF, PRIORITY, RR };
+enum class Algorithm { FCFS, SJF, SRTF, PRIORITY, RR, MLFQ, MLQ };
 
 inline const char* name(Algorithm algorithm) {
     switch (algorithm) {
@@ -20,6 +20,8 @@ inline const char* name(Algorithm algorithm) {
         case Algorithm::SRTF: return "SRTF";
         case Algorithm::PRIORITY: return "Priority";
         case Algorithm::RR: return "Round Robin";
+        case Algorithm::MLFQ: return "Multilevel Feedback Queue";
+        case Algorithm::MLQ: return "Multilevel Queue";
     }
     return "Unknown";
 }
@@ -185,6 +187,242 @@ inline void compare(const std::vector<PCB>& processes, int quantum = 3,
             << std::setw(9) << r.averageTurnaround << std::setw(8)
             << r.averageResponse << std::setw(12) << r.contextSwitches << '\n';
     }
+}
+
+// Runs a three-level feedback scheduler: new jobs start at level 0, use a short
+// quantum, and unfinished jobs move down a level; higher queues preempt lower ones.
+inline Result runMLFQ(std::vector<PCB> processes, bool verbose = true,
+                     std::ostream& out = std::cout) {
+    const int quantum[3] = {2, 4, 8};
+    for (std::size_t i = 0; i < processes.size(); ++i) {
+        PCB& p = processes[i];
+        if (p.pid <= 0 || p.arrival < 0 || p.burst <= 0)
+            throw std::invalid_argument("PID/burst must be positive; arrival cannot be negative");
+        for (std::size_t j = 0; j < i; ++j)
+            if (processes[j].pid == p.pid) throw std::invalid_argument("Duplicate PID");
+        p.remaining = p.burst; p.state = State::NEW;
+        p.finish = -1; p.response = -1; p.waiting = p.turnaround = 0;
+    }
+
+    Result result;
+    result.algorithm = Algorithm::MLFQ;
+    std::deque<int> queues[3];
+    std::vector<int> level(processes.size(), 0);
+    int running = -1, slice = 0, completed = 0, time = 0;
+    if (verbose) out << "\n=== Multilevel Feedback Queue trace (quanta 2/4/8) ===\n";
+
+    while (completed < static_cast<int>(processes.size())) {
+        for (std::size_t i = 0; i < processes.size(); ++i) {
+            if (processes[i].state == State::NEW && processes[i].arrival == time) {
+                setState(processes[i], State::READY, time, verbose, out);
+                level[i] = 0;
+                queues[0].push_back(static_cast<int>(i));
+            }
+        }
+        if (running >= 0) {
+            bool higherReady = false;
+            for (int q = 0; q < level[static_cast<std::size_t>(running)]; ++q)
+                if (!queues[q].empty()) higherReady = true;
+            if (higherReady) {
+                const int currentLevel = level[static_cast<std::size_t>(running)];
+                setState(processes[static_cast<std::size_t>(running)], State::READY, time, verbose, out);
+                queues[currentLevel].push_front(running);
+                running = -1;
+            }
+        }
+        if (running < 0) {
+            for (int q = 0; q < 3; ++q) if (!queues[q].empty()) {
+                running = queues[q].front();
+                queues[q].pop_front();
+                break;
+            }
+            if (running >= 0) {
+                PCB& p = processes[static_cast<std::size_t>(running)];
+                if (p.response < 0) p.response = time - p.arrival;
+                setState(p, State::RUNNING, time, verbose, out);
+                ++result.contextSwitches;
+                slice = 0;
+            }
+        }
+        if (running < 0) {
+            result.ticks.push_back(-1);
+            if (verbose) out << "[t=" << time << "] CPU idle\n";
+        } else {
+            PCB& p = processes[static_cast<std::size_t>(running)];
+            result.ticks.push_back(p.pid);
+            --p.remaining;
+            ++slice;
+            ++result.busy;
+            if (verbose) out << "[t=" << time << ".." << time + 1 << "] P" << p.pid
+                             << " runs at queue " << level[static_cast<std::size_t>(running)]
+                             << "; remaining=" << p.remaining << '\n';
+            if (p.remaining == 0) {
+                p.finish = time + 1;
+                p.turnaround = p.finish - p.arrival;
+                p.waiting = p.turnaround - p.burst;
+                setState(p, State::TERMINATED, time + 1, verbose, out);
+                running = -1;
+                ++completed;
+            } else if (slice == quantum[level[static_cast<std::size_t>(running)]]) {
+                int& currentLevel = level[static_cast<std::size_t>(running)];
+                if (currentLevel < 2) ++currentLevel;
+                setState(p, State::READY, time + 1, verbose, out);
+                queues[currentLevel].push_back(running);
+                running = -1;
+            }
+        }
+        ++time;
+    }
+
+    result.elapsed = time;
+    result.processes = processes;
+    for (const PCB& p : processes) {
+        result.averageWaiting += p.waiting;
+        result.averageTurnaround += p.turnaround;
+        result.averageResponse += p.response;
+    }
+    if (!processes.empty()) {
+        result.averageWaiting /= static_cast<double>(processes.size());
+        result.averageTurnaround /= static_cast<double>(processes.size());
+        result.averageResponse /= static_cast<double>(processes.size());
+    }
+    if (verbose) {
+        out << "Gantt: ";
+        for (std::size_t start = 0; start < result.ticks.size();) {
+            std::size_t end = start + 1;
+            while (end < result.ticks.size() && result.ticks[end] == result.ticks[start]) ++end;
+            out << '[' << start << '-' << end << ':';
+            if (result.ticks[start] < 0) out << "IDLE";
+            else out << 'P' << result.ticks[start];
+            out << "] ";
+            start = end;
+        }
+        out << "\nAverage WT/TAT/RT: " << std::fixed << std::setprecision(2)
+            << result.averageWaiting << " / " << result.averageTurnaround << " / "
+            << result.averageResponse << "\nCPU utilization: "
+            << (time ? 100.0 * result.busy / time : 0.0) << "%\nDispatches: "
+            << result.contextSwitches << '\n';
+        out << "PID Name       CT TAT WT RT\n";
+        for (const PCB& p : processes)
+            out << std::setw(3) << p.pid << ' ' << std::left << std::setw(10) << p.name
+                << std::right << std::setw(3) << p.finish << std::setw(4) << p.turnaround
+                << std::setw(3) << p.waiting << std::setw(3) << p.response << '\n';
+    }
+    return result;
+}
+
+// Runs fixed multilevel queues. Priority selects the queue once; RR rotates jobs
+// within each queue and a ready higher queue can preempt a lower queue.
+inline Result runMLQ(std::vector<PCB> processes, bool verbose = true,
+                     std::ostream& out = std::cout) {
+    const int quantum[3] = {2, 3, 4};
+    std::vector<int> level(processes.size(), 0);
+    for (std::size_t i = 0; i < processes.size(); ++i) {
+        PCB& p = processes[i];
+        if (p.pid <= 0 || p.arrival < 0 || p.burst <= 0 || p.priority < 0)
+            throw std::invalid_argument("PID/burst must be positive; arrival/priority cannot be negative");
+        for (std::size_t j = 0; j < i; ++j)
+            if (processes[j].pid == p.pid) throw std::invalid_argument("Duplicate PID");
+        level[i] = p.priority <= 1 ? 0 : (p.priority <= 3 ? 1 : 2);
+        p.remaining = p.burst; p.state = State::NEW;
+        p.finish = -1; p.response = -1; p.waiting = p.turnaround = 0;
+    }
+    Result result;
+    result.algorithm = Algorithm::MLQ;
+    std::deque<int> queues[3];
+    int running = -1, runningLevel = -1, slice = 0, completed = 0, time = 0;
+    if (verbose) out << "\n=== Multilevel Queue trace (static priority classes, RR quanta 2/3/4) ===\n";
+    while (completed < static_cast<int>(processes.size())) {
+        for (std::size_t i = 0; i < processes.size(); ++i) {
+            if (processes[i].state == State::NEW && processes[i].arrival == time) {
+                setState(processes[i], State::READY, time, verbose, out);
+                queues[level[i]].push_back(static_cast<int>(i));
+            }
+        }
+        if (running >= 0) {
+            bool higherReady = false;
+            for (int q = 0; q < runningLevel; ++q) if (!queues[q].empty()) higherReady = true;
+            if (higherReady) {
+                setState(processes[static_cast<std::size_t>(running)], State::READY, time, verbose, out);
+                queues[runningLevel].push_front(running);
+                running = -1;
+            }
+        }
+        if (running < 0) {
+            for (int q = 0; q < 3; ++q) if (!queues[q].empty()) {
+                runningLevel = q;
+                running = queues[q].front();
+                queues[q].pop_front();
+                break;
+            }
+            if (running >= 0) {
+                PCB& p = processes[static_cast<std::size_t>(running)];
+                if (p.response < 0) p.response = time - p.arrival;
+                setState(p, State::RUNNING, time, verbose, out);
+                ++result.contextSwitches;
+                slice = 0;
+            }
+        }
+        if (running < 0) {
+            result.ticks.push_back(-1);
+            if (verbose) out << "[t=" << time << "] CPU idle\n";
+        } else {
+            PCB& p = processes[static_cast<std::size_t>(running)];
+            result.ticks.push_back(p.pid);
+            --p.remaining; ++slice; ++result.busy;
+            if (verbose) out << "[t=" << time << ".." << time + 1 << "] P" << p.pid
+                             << " runs in static queue " << runningLevel << "; remaining="
+                             << p.remaining << '\n';
+            if (p.remaining == 0) {
+                p.finish = time + 1;
+                p.turnaround = p.finish - p.arrival;
+                p.waiting = p.turnaround - p.burst;
+                setState(p, State::TERMINATED, time + 1, verbose, out);
+                running = -1; ++completed;
+            } else if (slice == quantum[runningLevel]) {
+                setState(p, State::READY, time + 1, verbose, out);
+                queues[runningLevel].push_back(running);
+                running = -1;
+            }
+        }
+        ++time;
+    }
+    result.elapsed = time;
+    result.processes = processes;
+    for (const PCB& p : processes) {
+        result.averageWaiting += p.waiting;
+        result.averageTurnaround += p.turnaround;
+        result.averageResponse += p.response;
+    }
+    if (!processes.empty()) {
+        result.averageWaiting /= static_cast<double>(processes.size());
+        result.averageTurnaround /= static_cast<double>(processes.size());
+        result.averageResponse /= static_cast<double>(processes.size());
+    }
+    if (verbose) {
+        out << "Gantt: ";
+        for (std::size_t start = 0; start < result.ticks.size();) {
+            std::size_t end = start + 1;
+            while (end < result.ticks.size() && result.ticks[end] == result.ticks[start]) ++end;
+            out << '[' << start << '-' << end << ':';
+            if (result.ticks[start] < 0) out << "IDLE"; else out << 'P' << result.ticks[start];
+            out << "] "; start = end;
+        }
+        out << "\nAverage WT/TAT/RT: " << std::fixed << std::setprecision(2)
+            << result.averageWaiting << " / " << result.averageTurnaround << " / "
+            << result.averageResponse << "\nCPU utilization: "
+            << (time ? 100.0 * result.busy / time : 0.0) << "%\nDispatches: "
+            << result.contextSwitches << '\n';
+        out << "PID Name       Queue CT TAT WT RT\n";
+        for (std::size_t i = 0; i < processes.size(); ++i) {
+            const PCB& p = processes[i];
+            out << std::setw(3) << p.pid << ' ' << std::left << std::setw(10) << p.name
+                << std::right << std::setw(5) << level[i] << std::setw(3) << p.finish
+                << std::setw(4) << p.turnaround << std::setw(3) << p.waiting
+                << std::setw(3) << p.response << '\n';
+        }
+    }
+    return result;
 }
 
 }

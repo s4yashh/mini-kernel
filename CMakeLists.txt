@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(MiniKernelSimulator LANGUAGES CXX)
 
+enable_testing()
+
 add_executable(mini_kernel src/main.cpp)
 target_include_directories(mini_kernel PRIVATE include)
 target_compile_features(mini_kernel PRIVATE cxx_std_17)
@@ -9,3 +11,13 @@ if(MSVC)
 else()
     target_compile_options(mini_kernel PRIVATE -Wall -Wextra)
 endif()
+
+add_executable(simulator_tests tests/simulator_tests.cpp)
+target_include_directories(simulator_tests PRIVATE include)
+target_compile_features(simulator_tests PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(simulator_tests PRIVATE /W4)
+else()
+    target_compile_options(simulator_tests PRIVATE -Wall -Wextra)
+endif()
+add_test(NAME simulator_tests COMMAND simulator_tests)

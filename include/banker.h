@@ -101,6 +101,19 @@ public:
         if (verbose) out << "P" << pid << " request GRANTED; state remains safe\n";
         return Decision::GRANTED;
     }
+
+    // Releases a completed process's allocation and removes it from future safety checks.
+    void releaseAllAndFinish(std::size_t pid, bool verbose = true,
+                             std::ostream& out = std::cout) {
+        if (pid >= allocation_.size()) throw std::out_of_range("Invalid process ID");
+        for (std::size_t resource = 0; resource < available_.size(); ++resource) {
+            available_[resource] += allocation_[pid][resource];
+            allocation_[pid][resource] = 0;
+            maximum_[pid][resource] = 0;
+            need_[pid][resource] = 0;
+        }
+        if (verbose) out << "P" << pid << " completed; allocated resources released\n";
+    }
 };
 
 inline Banker sample() {

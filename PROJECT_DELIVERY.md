@@ -1,4 +1,6 @@
-# Mini Kernel Simulator — Complete Delivery
+# Mini Kernel Simulator — Earlier 50% Delivery Snapshot
+
+> Historical snapshot from the first Review 1 build. It predates the completed modules now in `include/` and is retained as a record of the earlier deliverable. **Use the root `README.md` and current source files as authoritative.** Its old statements about missing synchronization, disk, and future modules are no longer current.
 
 Current files from the project workspace.
 
