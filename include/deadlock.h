@@ -3,8 +3,10 @@
 
 #include <algorithm>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace deadlock {
@@ -20,6 +22,29 @@ struct Detection {
     std::vector<int> deadlocked;
     std::vector<int> completionOrder;
 };
+
+inline void printState(const State& state, std::ostream& out, const std::string& title) {
+    out << title << "\nAvailable:";
+    for (int value : state.available) out << ' ' << value;
+    out << "\nPID  Allocation  Request\n";
+    for (std::size_t i = 0; i < state.allocation.size(); ++i) {
+        out << std::right << std::setw(3) << ('P' + std::to_string(i)) << "  ";
+        for (std::size_t j = 0; j < state.available.size(); ++j)
+            out << (j ? " " : "") << state.allocation[i][j];
+        out << "         ";
+        for (std::size_t j = 0; j < state.available.size(); ++j)
+            out << (j ? " " : "") << state.request[i][j];
+        out << '\n';
+    }
+}
+
+enum class VictimPolicy { FIRST_DEADLOCKED, LEAST_ALLOCATED };
+
+inline const char* victimPolicyName(VictimPolicy policy) {
+    return policy == VictimPolicy::FIRST_DEADLOCKED
+        ? "terminate the lowest-numbered deadlocked process"
+        : "terminate the deadlocked process holding the fewest resources";
+}
 
 inline void validate(const State& state) {
     if (state.available.empty() || state.allocation.empty() ||
@@ -83,6 +108,34 @@ inline Detection detect(const State& state, bool verbose = true,
     return result;
 }
 
+// Rolls back one victim and returns the recovered state. Detection is repeated
+// afterwards so the caller can verify that the deadlock is gone.
+inline State recover(State state, VictimPolicy policy = VictimPolicy::FIRST_DEADLOCKED,
+                     std::ostream& out = std::cout) {
+    const Detection detection = detect(state, false);
+    if (detection.deadlocked.empty()) {
+        out << "Recovery: no deadlocked process to terminate.\n";
+        return state;
+    }
+    int victim = detection.deadlocked.front();
+    if (policy == VictimPolicy::LEAST_ALLOCATED) {
+        long best = -1;
+        for (int pid : detection.deadlocked) {
+            long held = 0;
+            for (int units : state.allocation[static_cast<std::size_t>(pid)]) held += units;
+            if (best < 0 || held < best) { best = held; victim = pid; }
+        }
+    }
+    out << "Recovery policy: " << victimPolicyName(policy) << ".\n"
+        << "Recovery: terminate P" << victim << " and release its resources.\n";
+    for (std::size_t j = 0; j < state.available.size(); ++j) {
+        state.available[j] += state.allocation[static_cast<std::size_t>(victim)][j];
+        state.allocation[static_cast<std::size_t>(victim)][j] = 0;
+        state.request[static_cast<std::size_t>(victim)][j] = 0;
+    }
+    return state;
+}
+
 // Detects a cycle in a wait-for graph using three-color depth-first search.
 inline bool hasCycle(const std::vector<std::vector<int>>& graph,
                      std::ostream& out = std::cout) {
@@ -128,16 +181,14 @@ inline State sample() {
 inline void recoveryDemo(std::ostream& out = std::cout) {
     State state = sample();
     out << "\nDeadlock detection and recovery\n";
+    printState(state, out, "\nBefore recovery");
     Detection before = detect(state, true, out);
     if (before.deadlocked.empty()) return;
-    const int victim = before.deadlocked.front();
-    out << "Recovery: terminate P" << victim << " and release its resources\n";
-    for (std::size_t j = 0; j < state.available.size(); ++j) {
-        state.available[j] += state.allocation[static_cast<std::size_t>(victim)][j];
-        state.allocation[static_cast<std::size_t>(victim)][j] = 0;
-        state.request[static_cast<std::size_t>(victim)][j] = 0;
-    }
-    detect(state, true, out);
+    state = recover(state, VictimPolicy::FIRST_DEADLOCKED, out);
+    printState(state, out, "\nAfter recovery");
+    const Detection after = detect(state, true, out);
+    out << (after.deadlocked.empty() ? "Recovery successful: the system can complete every process.\n"
+                                     : "Recovery incomplete: deadlock remains.\n");
 }
 
 inline void demo(std::ostream& out = std::cout) {

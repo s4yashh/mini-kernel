@@ -21,3 +21,12 @@ else()
     target_compile_options(simulator_tests PRIVATE -Wall -Wextra)
 endif()
 add_test(NAME simulator_tests COMMAND simulator_tests)
+
+# The browser visualizer keeps its pure simulation core inside web/index.html
+# between the KERNEL-CORE markers. When Node.js is available, register the
+# dependency-free regression test for that core.
+find_program(NODE_EXECUTABLE node)
+if(NODE_EXECUTABLE)
+    add_test(NAME web_kernel_core
+             COMMAND ${NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/web/kernel_core_test.js)
+endif()

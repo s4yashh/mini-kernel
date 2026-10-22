@@ -168,6 +168,16 @@ public:
         for (const Region& region : regions_) if (region.pid == -1) total += region.size;
         return total;
     }
+    int usedSpace() const { return capacity_ - freeSpace(); }
+    double utilization() const {
+        return capacity_ == 0 ? 0.0 : 100.0 * usedSpace() / capacity_;
+    }
+    int allocationCount() const {
+        int count = 0;
+        for (const Region& region : regions_) if (region.pid != -1) ++count;
+        return count;
+    }
+    const std::vector<Region>& map() const { return regions_; }
     int largestHole() const {
         int largest = 0;
         for (const Region& region : regions_) if (region.pid == -1 && region.size > largest)
@@ -175,34 +185,60 @@ public:
         return largest;
     }
     int externalFragmentation() const { return freeSpace() - largestHole(); }
+    double fragmentationPercent() const {
+        return freeSpace() == 0 ? 0.0 : 100.0 * externalFragmentation() / freeSpace();
+    }
 
     void print(std::ostream& out = std::cout) const {
-        out << "Memory map (" << capacity_ << " units)\n";
+        out << "Memory map (" << capacity_ << " units, " << allocationCount()
+            << " allocation(s))\n";
         for (const Region& region : regions_)
             out << '[' << region.start << ".." << region.start + region.size - 1 << "] "
                 << (region.pid < 0 ? "FREE" : "P" + std::to_string(region.pid))
                 << " (" << region.size << ")\n";
-        out << "Free=" << freeSpace() << ", external fragmentation="
-            << externalFragmentation() << '\n';
+        out << std::fixed << std::setprecision(1)
+            << "Used=" << usedSpace() << '/' << capacity_ << " (" << utilization()
+            << "%), free=" << freeSpace() << ", largest hole=" << largestHole()
+            << ", external fragmentation=" << externalFragmentation() << " units ("
+            << fragmentationPercent() << "% of free space)\n";
     }
 };
 
-// Compares the three contiguous allocation policies on the same deterministic requests.
+// Compares the three contiguous allocation policies on the same requests and the
+// same initial memory. Three holes with different sizes remain in address order
+// (25, 30, 20), so the 18-unit request exposes a different placement for every
+// policy: first hole, tightest hole, largest hole.
 inline void compareAllocationPolicies(std::ostream& out = std::cout) {
+    struct Request { int pid; int size; bool release; };
+    const Request requests[] = {
+        {1, 10, false}, {2, 25, false}, {3, 5, false}, {4, 30, false},
+        {5, 5, false}, {6, 20, false}, {7, 5, false},
+        {2, 0, true}, {4, 0, true}, {6, 0, true},
+        {8, 18, false}, {9, 12, false}
+    };
+    out << "\nContiguous allocation: identical requests, 100-unit memory\n"
+        << "Sequence: allocate P1=10, P2=25, P3=5, P4=30, P5=5, P6=20, P7=5; release P2, P4 "
+        << "and P6; then P8=18 and P9=12.\n"
+        << "Holes in address order after the releases: 25 at 10, 30 at 40, 20 at 75.\n";
     for (AllocationPolicy policy : {AllocationPolicy::FIRST_FIT, AllocationPolicy::BEST_FIT,
                                     AllocationPolicy::WORST_FIT}) {
-        out << "\n" << policyName(policy) << "\n";
+        out << "\n--- " << policyName(policy) << " ---\n";
         ContiguousAllocator allocator(100);
-        allocator.allocate(1, 20, policy);
-        allocator.allocate(2, 15, policy);
-        allocator.allocate(3, 25, policy);
-        allocator.allocate(4, 10, policy);
-        allocator.release(2);
-        allocator.release(4);
-        const bool success = allocator.allocate(5, 22, policy);
-        out << "P5 request 22: " << (success ? "allocated" : "failed") << '\n';
+        for (const Request& request : requests) {
+            if (request.release) {
+                out << "release P" << request.pid << ": "
+                    << (allocator.release(request.pid) ? "done" : "nothing to release") << '\n';
+                continue;
+            }
+            const bool success = allocator.allocate(request.pid, request.size, policy);
+            out << "P" << request.pid << " requests " << request.size << " units: "
+                << (success ? "allocated" : "FAILED (no hole large enough)") << '\n';
+        }
         allocator.print(out);
     }
+    out << "\nFirst Fit takes the first hole that fits, Best Fit the smallest hole that fits, "
+        << "and Worst Fit the largest hole. All requests succeed, but placement and "
+        << "fragmentation differ.\n";
 }
 
 struct Segment { int base = 0, limit = 0; };

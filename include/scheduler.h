@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <deque>
 #include <iomanip>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -30,6 +31,7 @@ struct Result {
     Algorithm algorithm = Algorithm::FCFS;
     std::vector<PCB> processes;
     std::vector<int> ticks;
+    std::vector<std::string> decisions;
     int elapsed = 0, busy = 0, contextSwitches = 0;
     double averageWaiting = 0, averageTurnaround = 0, averageResponse = 0;
 };
@@ -61,13 +63,50 @@ inline int bestReady(const std::vector<PCB>& processes, Algorithm algorithm) {
     return best;
 }
 
+// Human-readable justification for a dispatch. The tie-break is always the same:
+// earlier arrival time, then lower PID.
+inline std::string explainPick(const std::vector<PCB>& processes, Algorithm algorithm,
+                               int chosen) {
+    const PCB& selected = processes[static_cast<std::size_t>(chosen)];
+    std::ostringstream text;
+    text << 'P' << selected.pid << " (" << selected.name << ") selected: ";
+    switch (algorithm) {
+        case Algorithm::FCFS: text << "earliest arrival time in the READY queue"; break;
+        case Algorithm::SJF: text << "shortest total CPU burst in the READY queue"; break;
+        case Algorithm::SRTF: text << "shortest remaining time in the READY queue"; break;
+        case Algorithm::PRIORITY: text << "lowest priority number in the READY queue"; break;
+        case Algorithm::RR: text << "front of the round-robin ready queue"; break;
+        case Algorithm::MLFQ: text << "highest non-empty feedback queue"; break;
+        case Algorithm::MLQ: text << "highest-priority static queue"; break;
+    }
+    int ties = 0;
+    std::ostringstream rivals;
+    for (const PCB& other : processes) {
+        if (other.state != State::READY || other.pid == selected.pid) continue;
+        bool tie = false;
+        if (algorithm == Algorithm::FCFS || algorithm == Algorithm::RR)
+            tie = other.arrival == selected.arrival;
+        else if (algorithm == Algorithm::SJF) tie = other.burst == selected.burst;
+        else if (algorithm == Algorithm::SRTF) tie = other.remaining == selected.remaining;
+        else if (algorithm == Algorithm::PRIORITY) tie = other.priority == selected.priority;
+        if (tie) {
+            ++ties;
+            rivals << (ties > 1 ? ", " : "") << 'P' << other.pid;
+        }
+    }
+    if (ties > 0)
+        text << "; tie with " << rivals.str()
+             << " broken by earlier arrival time, then lower PID";
+    return text.str();
+}
+
 inline Result run(std::vector<PCB> processes, Algorithm algorithm, int quantum = 3,
                   bool verbose = true, std::ostream& out = std::cout) {
     if (quantum <= 0) throw std::invalid_argument("Quantum must be positive");
     for (std::size_t i = 0; i < processes.size(); ++i) {
         PCB& p = processes[i];
-        if (p.pid <= 0 || p.arrival < 0 || p.burst <= 0)
-            throw std::invalid_argument("PID/burst must be positive; arrival cannot be negative");
+        if (p.pid <= 0 || p.arrival < 0 || p.burst <= 0 || p.priority < 0)
+            throw std::invalid_argument("PID/burst must be positive; arrival/priority cannot be negative");
         for (std::size_t j = 0; j < i; ++j)
             if (processes[j].pid == p.pid) throw std::invalid_argument("Duplicate PID");
         p.remaining = p.burst; p.state = State::NEW;
@@ -97,6 +136,14 @@ inline Result run(std::vector<PCB> processes, Algorithm algorithm, int quantum =
             if (challenger >= 0 && algorithm == Algorithm::PRIORITY)
                 preempt = processes[challenger].priority < processes[running].priority;
             if (preempt) {
+                if (verbose)
+                    out << "  scheduler: P" << processes[challenger].pid
+                        << " preempts P" << processes[running].pid << " because its "
+                        << (algorithm == Algorithm::SRTF ? "remaining time is shorter" : "priority is better")
+                        << '\n';
+                result.decisions.push_back("[t=" + std::to_string(time) + "] P" +
+                    std::to_string(processes[challenger].pid) + " preempts P" +
+                    std::to_string(processes[running].pid));
                 setState(processes[running], State::READY, time, verbose, out);
                 running = -1;
             }
@@ -111,6 +158,9 @@ inline Result run(std::vector<PCB> processes, Algorithm algorithm, int quantum =
                 PCB& p = processes[running];
                 if (p.response < 0) p.response = time - p.arrival;
                 setState(p, State::RUNNING, time, verbose, out);
+                const std::string reason = explainPick(processes, algorithm, running);
+                result.decisions.push_back("[t=" + std::to_string(time) + "] " + reason);
+                if (verbose) out << "  scheduler: " << reason << '\n';
                 ++result.contextSwitches;
                 slice = 0;
             }
@@ -240,6 +290,12 @@ inline Result runMLFQ(std::vector<PCB> processes, bool verbose = true,
                 PCB& p = processes[static_cast<std::size_t>(running)];
                 if (p.response < 0) p.response = time - p.arrival;
                 setState(p, State::RUNNING, time, verbose, out);
+                std::ostringstream reason;
+                reason << "P" << p.pid << " (" << p.name << ") selected from feedback queue "
+                       << level[static_cast<std::size_t>(running)]
+                       << ", the highest non-empty queue (quanta 2/4/8)";
+                result.decisions.push_back("[t=" + std::to_string(time) + "] " + reason.str());
+                if (verbose) out << "  scheduler: " << reason.str() << '\n';
                 ++result.contextSwitches;
                 slice = 0;
             }
@@ -359,6 +415,13 @@ inline Result runMLQ(std::vector<PCB> processes, bool verbose = true,
                 PCB& p = processes[static_cast<std::size_t>(running)];
                 if (p.response < 0) p.response = time - p.arrival;
                 setState(p, State::RUNNING, time, verbose, out);
+                std::ostringstream reason;
+                reason << "P" << p.pid << " (" << p.name << ") selected from static queue "
+                       << runningLevel << " (priority class "
+                       << (runningLevel == 0 ? "1-1" : runningLevel == 1 ? "2-3" : "4+")
+                       << "); higher queues always run first";
+                result.decisions.push_back("[t=" + std::to_string(time) + "] " + reason.str());
+                if (verbose) out << "  scheduler: " << reason.str() << '\n';
                 ++result.contextSwitches;
                 slice = 0;
             }
