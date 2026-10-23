@@ -228,7 +228,7 @@ td.hit { color: var(--good); }
     <div class="card">
       <h2>Applications to launch</h2>
       <div class="scroll"><table id="app-launch"></table></div>
-      <p class="note" style="margin-top:10px">Lower priority number means higher CPU priority (1 highest). File requests carry their own priority, independent of the CPU priority. Editing the CPU burst scales the application's CPU work.</p>
+      <p class="note" style="margin-top:10px">Lower priority number means higher CPU priority (1 highest). File requests carry their own priority, independent of the CPU priority. Editing the CPU burst scales the application's CPU work. After Run/Step, press <strong>Terminate</strong> in the status table to kill a process at the current tick; Reset restores it.</p>
       <div class="row" style="margin-top:10px">
         <button class="btn" id="app-add" type="button">Add application</button>
         <label>CPU policy
@@ -250,6 +250,7 @@ td.hit { color: var(--good); }
         <button class="btn" id="app-reset" type="button">Reset</button>
         <span class="badge" id="app-clock">t = 0</span>
       </div>
+      <div class="msg" id="app-message" role="status" style="display:none"></div>
     </div>
     <div class="card">
       <h2>Application status</h2>
@@ -339,10 +340,12 @@ td.hit { color: var(--good); }
       <div class="gantt-scroll"><div id="gantt-box"></div></div>
       <div class="player">
         <button class="btn primary" id="play" type="button">Play</button>
+        <button class="btn" id="step" type="button">Step</button>
         <input type="range" id="scrub" min="0" max="1" value="1" aria-label="Simulation time">
         <span class="clock" id="clock">t = 0</span>
       </div>
       <div class="stats" id="sched-stats"></div>
+      <div class="log" id="sched-queues" style="margin-top:12px"></div>
     </div>
 
     <div class="grid2">
@@ -425,9 +428,10 @@ td.hit { color: var(--good); }
     <div class="card">
       <h2>Deterministic synchronization demos</h2>
       <div class="row">
-        <button class="btn primary" id="pc-run" type="button">Producer–consumer</button>
+        <button class="btn" id="pc-run" type="button">Producer–consumer</button>
         <button class="btn" id="dining-run" type="button">Dining philosophers</button>
-        <button class="btn" id="peterson-run" type="button">Peterson protocol</button>
+        <button class="btn" id="peterson-run" type="button">Peterson / Bakery</button>
+        <button class="btn" id="sem-run" type="button">Semaphore / mutex</button>
       </div>
       <p class="note" style="margin-top:10px">These are reproducible single-threaded traces; the page does not create real threads.</p>
     </div>
@@ -468,6 +472,24 @@ td.hit { color: var(--good); }
       <div class="scroll"><table id="memory-table"></table></div>
       <div class="grid2" id="memory-maps"></div>
     </div>
+    <div class="card">
+      <h2>Interactive allocator</h2>
+      <p class="note">Allocate and release partitions yourself. The policy decides which hole is chosen; the map, free space and fragmentation update from the simulated allocator.</p>
+      <div class="row">
+        <label>Capacity <input type="number" id="mem2-capacity" value="100" min="20" max="512"></label>
+        <label>Policy
+          <select id="mem2-policy"><option>First Fit</option><option>Best Fit</option><option>Worst Fit</option></select>
+        </label>
+        <label>PID <input type="number" id="mem2-pid" value="1" min="1"></label>
+        <label>Size <input type="number" id="mem2-size" value="20" min="1"></label>
+        <button class="btn primary" id="mem2-allocate" type="button">Allocate</button>
+        <button class="btn" id="mem2-release" type="button">Release PID</button>
+        <button class="btn" id="mem2-reset" type="button">Reset</button>
+      </div>
+      <div class="memory-map" id="mem2-map" style="margin-top:12px"></div>
+      <div class="stats" id="mem2-stats"></div>
+      <div class="log" id="mem2-log" style="margin-top:10px"></div>
+    </div>
     <div class="grid2">
       <div class="card">
         <h2>Segmentation address translation</h2>
@@ -505,8 +527,20 @@ td.hit { color: var(--good); }
     <div class="grid2">
       <div class="card">
         <h2>Deadlock detection and recovery</h2>
-        <p class="note">P0 holds R0 and waits for R1; P1 holds R1 and waits for R0. Detect the cycle, terminate a victim, and release its resource.</p>
-        <button class="btn primary" id="deadlock-run" type="button">Detect and recover</button>
+        <p class="note">P0 holds R0 and waits for R1; P1 holds R1 and waits for R0. The table is the simulated allocation/request state; detection and recovery run in the browser.</p>
+        <div class="scroll"><table id="deadlock-table"></table></div>
+        <div class="row" style="margin-top:10px">
+          <label>Victim policy
+            <select id="deadlock-policy">
+              <option value="first">Lowest-numbered deadlocked process</option>
+              <option value="least">Fewest resources held</option>
+            </select>
+          </label>
+          <button class="btn primary" id="deadlock-run" type="button">Detect deadlock</button>
+          <button class="btn" id="deadlock-recover" type="button">Recover</button>
+          <button class="btn" id="deadlock-reset" type="button">Reset state</button>
+        </div>
+        <div class="msg" id="deadlock-msg" role="status"></div>
         <div class="log" id="deadlock-log" style="margin-top:10px"></div>
       </div>
       <div class="card">
@@ -967,6 +1001,12 @@ var KernelCore = (function () {
       request.status = 'COMPLETED';
       done++;
     }
+    requests.forEach(function (request) {
+      request.depth = 1 + requests.filter(function (other) {
+        return other !== request && other.submitted <= request.submitted &&
+               (other.completed < 0 || other.completed > request.submitted);
+      }).length;
+    });
     return { requests: requests, log: log, stats: requestStats(requests) };
   }
   function demoRequests() {
@@ -1010,6 +1050,10 @@ var KernelCore = (function () {
     var requests = [], gantt = [], decisions = [], transitions = [], snapshots = [];
     var time = 0, running = -1, device = -1, ioOrder = 0, busy = 0, dispatches = 0, nextId = 1;
     var completed = 0;
+    var killPlan = {};
+    (options.kills || []).forEach(function (kill) {
+      killPlan[kill.pid + ':' + kill.at] = true;
+    });
 
     function logDecision(text) { decisions.push({ t: time, text: text }); }
     function change(rt, next, reason, at) {
@@ -1063,7 +1107,7 @@ var KernelCore = (function () {
                    ioWait: rt.ioWait, result: rt.result, finish: rt.finish,
                    response: rt.response, dispatches: rt.dispatches, done: rt.done,
                    priority: rt.priority, arrival: rt.arrival, burst: rt.app.burst,
-                   cpu: rt.cpuTicks };
+                   cpu: rt.cpuTicks, killed: rt.killed || false };
         }),
         memory: JSON.parse(JSON.stringify(memory)),
         pending: requests.filter(function (r) { return r.status === 'PENDING'; }).map(function (r) {
@@ -1127,6 +1171,32 @@ var KernelCore = (function () {
     snapshot(); // t = 0 baseline
 
     while (completed < runtimes.length && time < 3000) {
+      // user-initiated termination (deterministic kill plan)
+      for (var k = 0; k < runtimes.length; k++) {
+        var victim = runtimes[k];
+        if (victim.done || !killPlan[victim.pid + ':' + time]) continue;
+        for (var r = 0; r < requests.length; r++) {
+          var pending = requests[r];
+          if (pending.pid !== victim.pid) continue;
+          if (pending.status === 'PENDING' || pending.status === 'SERVING') {
+            pending.status = 'FAILED';
+            pending.note = 'cancelled: process terminated';
+            pending.completed = time;
+            if (device === r) device = -1;
+          }
+        }
+        if (running === k) running = -1;
+        victim.killed = true;
+        victim.done = true;
+        victim.finish = time;
+        victim.result = 'terminated by the user at t=' + time;
+        change(victim, 'TERMINATED', 'terminated by the user', time);
+        if (victim.admitted) {
+          memRelease(memory, victim.pid);
+          for (var j = 0; j < 3; j++) available[j] += victim.app.resources[j];
+        }
+        completed++;
+      }
       // admission
       for (var i = 0; i < runtimes.length; i++) {
         var rt = runtimes[i];
@@ -1198,6 +1268,9 @@ var KernelCore = (function () {
               ok: true, note: '', payload: step.data || '', wait: 0
             };
             request.remaining = request.serviceTicks;
+            request.depth = 1 + requests.filter(function (other) {
+              return other.status === 'PENDING';
+            }).length;
             requests.push(request);
             current.ioStart = time + 1;
             change(current, 'WAITING', 'blocked on file I/O request #' + request.id, time + 1);
@@ -1255,6 +1328,359 @@ var KernelCore = (function () {
     };
   }
 
+  // ---- user-initiated termination -------------------------------------------
+  // A kill is part of the deterministic plan: the run is recomputed with the
+  // termination applied at the requested tick, so the timeline never contradicts
+  // itself.
+  function killKey(pid, at) { return pid + ':' + at; }
+
+  // ---- deadlock: detection and recovery -------------------------------------
+  function deadlockSample() {
+    return {
+      available: [0, 0],
+      allocation: [[1, 0], [0, 1], [0, 0]],
+      request: [[0, 1], [1, 0], [0, 0]]
+    };
+  }
+  function cloneDeadlock(state) {
+    return {
+      available: state.available.slice(),
+      allocation: state.allocation.map(function (row) { return row.slice(); }),
+      request: state.request.map(function (row) { return row.slice(); })
+    };
+  }
+  function deadlockDetect(input) {
+    var state = cloneDeadlock(input);
+    var work = state.available.slice();
+    var finished = state.allocation.map(function (row) {
+      return row.every(function (units) { return units === 0; });
+    });
+    var order = [], trace = [], progress = true;
+    while (progress) {
+      progress = false;
+      for (var i = 0; i < state.allocation.length; i++) {
+        if (finished[i]) continue;
+        var canFinish = state.request[i].every(function (units, j) { return units <= work[j]; });
+        if (!canFinish) continue;
+        var before = work.slice();
+        state.allocation[i].forEach(function (units, j) { work[j] += units; });
+        finished[i] = true;
+        order.push(i);
+        progress = true;
+        trace.push({ pid: i, before: before, after: work.slice(),
+                     released: state.allocation[i].slice() });
+      }
+    }
+    var deadlocked = [];
+    finished.forEach(function (done, i) { if (!done) deadlocked.push(i); });
+    return { deadlocked: deadlocked, order: order, trace: trace, work: work };
+  }
+  function deadlockRecover(input, policy) {
+    var detection = deadlockDetect(input);
+    if (!detection.deadlocked.length) {
+      return { state: cloneDeadlock(input), detection: detection, victim: -1, after: detection };
+    }
+    var victim = detection.deadlocked[0];
+    if (policy === 'least') {
+      var best = -1;
+      detection.deadlocked.forEach(function (pid) {
+        var held = input.allocation[pid].reduce(function (sum, units) { return sum + units; }, 0);
+        if (best < 0 || held < best) { best = held; victim = pid; }
+      });
+    }
+    var next = cloneDeadlock(input);
+    next.available = next.available.map(function (units, j) {
+      return units + next.allocation[victim][j];
+    });
+    next.allocation[victim] = next.allocation[victim].map(function () { return 0; });
+    next.request[victim] = next.request[victim].map(function () { return 0; });
+    return { state: next, detection: detection, victim: victim, after: deadlockDetect(next) };
+  }
+
+  // ---- semaphores, classical problems ---------------------------------------
+  function Semaphore(value) { this.value = value; this.blocked = []; }
+  Semaphore.prototype.wait = function (name) {
+    if (this.value > 0) { this.value--; return true; }
+    this.blocked.push(name);
+    return false;
+  };
+  Semaphore.prototype.signal = function () {
+    if (this.blocked.length) return this.blocked.shift();
+    this.value++;
+    return '';
+  };
+
+  function semaphoreTrace() {
+    var gate = new Semaphore(1), steps = [];
+    steps.push('Counting semaphore S=1 (a binary mutex in this example).');
+    steps.push('P1 wait(S): granted, S=' + (gate.wait('P1'), gate.value) + ', critical section entered.');
+    var p2 = gate.wait('P2');
+    steps.push('P2 wait(S): ' + (p2 ? 'granted' : 'BLOCKED and queued behind P1') + ', S=' + gate.value + '.');
+    var woken = gate.signal();
+    steps.push('P1 signal(S): ' + (woken ? 'hands the permit directly to ' + woken : 'S=' + gate.value) +
+               '; P1 leaves the critical section.');
+    steps.push('P2 leaves the critical section and signals; S=' + (gate.signal(), gate.value) + '.');
+    return steps;
+  }
+
+  function producerConsumerTrace() {
+    var empty = new Semaphore(2), full = new Semaphore(0), mutex = new Semaphore(1);
+    var buffer = [], steps = [], step = 0;
+    function note(text) {
+      steps.push('Step ' + (++step) + ': ' + text + ' | buffer=[' + buffer.join(',') +
+                 '] empty=' + empty.value + ' full=' + full.value + ' mutex=' + mutex.value);
+    }
+    note('initial state');
+    function consume(name, handed) {
+      if (!handed && !full.wait(name)) { note(name + ' BLOCKED: buffer empty'); return ''; }
+      if (!buffer.length) throw new Error('a full-slot permit has no item');
+      if (!mutex.wait(name)) throw new Error('simulated mutex unexpectedly busy');
+      var item = buffer.shift();
+      note(name + ' consumes ' + item);
+      mutex.signal();
+      var woken = empty.signal();
+      note(name + ' signals empty' + (woken ? '; wakes ' + woken : ''));
+      return woken;
+    }
+    function produce(name, item, handed) {
+      if (!handed && !empty.wait(name)) { note(name + ' BLOCKED: buffer full'); return ''; }
+      if (!mutex.wait(name)) throw new Error('simulated mutex unexpectedly busy');
+      buffer.push(item);
+      note(name + ' produces ' + item);
+      mutex.signal();
+      var woken = full.signal();
+      note(name + ' signals full' + (woken ? '; wakes ' + woken : ''));
+      return woken;
+    }
+    consume('C1', false);
+    var woken = produce('P1', 10, false);
+    if (woken === 'C1') consume('C1', true);
+    produce('P1', 20, false);
+    produce('P1', 30, false);
+    produce('P2', 40, false);
+    woken = consume('C2', false);
+    if (woken === 'P2') produce('P2', 40, true);
+    consume('C2', false);
+    consume('C2', false);
+    steps.push('Bounded-buffer invariant held: 0 <= buffer <= 2, no overflow or underflow.');
+    return steps;
+  }
+
+  function diningTrace() {
+    var steps = [];
+    function tryTake(forks, pid, fork, waits, names) {
+      if (forks[fork] === -1) {
+        forks[fork] = pid;
+        steps.push('P' + pid + ' takes fork ' + fork + (names ? ' (' + names[fork] + ')' : '') + '.');
+        return true;
+      }
+      waits.push({ pid: pid, fork: fork, owner: forks[fork] });
+      steps.push('P' + pid + ' BLOCKED on fork ' + fork + ' (held by P' + forks[fork] + ').');
+      return false;
+    }
+    function cycle(waits) {
+      var graph = {};
+      waits.forEach(function (wait) { graph[wait.pid] = wait.owner; });
+      Object.keys(graph).forEach(function (start) {
+        var seen = {}, node = Number(start);
+        while (graph[node] !== undefined) {
+          if (seen[node]) return;
+          seen[node] = true;
+          node = graph[node];
+          if (seen[node]) { graph.__cycle = true; }
+        }
+      });
+      return !!graph.__cycle;
+    }
+
+    steps.push('Unsafe policy: every philosopher takes the left fork first.');
+    var forks = [-1, -1, -1, -1, -1], waits = [];
+    for (var p = 0; p < 5; p++) tryTake(forks, p, p, waits, null);
+    for (p = 0; p < 5; p++) tryTake(forks, p, (p + 1) % 5, waits, null);
+    steps.push(cycle(waits)
+      ? 'Wait-for cycle detected among the five philosophers: DEADLOCK.'
+      : 'No cycle detected (unexpected).');
+
+    steps.push('');
+    steps.push('Safe policy: each philosopher takes the lower-numbered fork first.');
+    forks = [-1, -1, -1, -1, -1];
+    var allAte = true;
+    for (p = 0; p < 5; p++) {
+      var left = p, right = (p + 1) % 5;
+      var first = Math.min(left, right), second = Math.max(left, right);
+      var gotFirst = tryTake(forks, p, first, [], null);
+      var gotSecond = gotFirst && tryTake(forks, p, second, [], null);
+      if (gotFirst && gotSecond) {
+        steps.push('P' + p + ' eats, then releases forks ' + first + ' and ' + second + '.');
+        forks[first] = -1; forks[second] = -1;
+      } else allAte = false;
+    }
+    steps.push(allAte ? 'All five philosophers ate; global ordering prevents circular wait.'
+                      : 'Ordered acquisition failed (unexpected).');
+    return steps;
+  }
+
+  function petersonTrace() {
+    var flag = [false, false], turn = 0, steps = [];
+    steps.push('Two simulated threads share flag[2] and turn.');
+    flag[0] = true; turn = 1;
+    steps.push('T0 sets flag[0]=true and turn=1. flag[1]=' + flag[1] +
+               ' -> T0 enters the critical section.');
+    flag[1] = true; turn = 0;
+    var t1waits = flag[0] && turn === 0;
+    steps.push('T1 sets flag[1]=true and turn=0. flag[0]=' + flag[0] + ', turn=' + turn +
+               ' -> T1 ' + (t1waits ? 'waits' : 'enters') + '.');
+    flag[0] = false;
+    steps.push('T0 leaves and clears flag[0].');
+    var t1enters = flag[1] && (turn === 1 || !flag[0]);
+    steps.push(t1enters ? 'T1 now enters the critical section: at most one thread is inside.'
+                        : 'T1 still waits.');
+    flag[1] = false;
+    steps.push('T1 leaves and clears flag[1]. Mutual exclusion held.');
+
+    var tickets = [2, 1, 1, 3];
+    var order = [0, 1, 2, 3].sort(function (a, b) {
+      return tickets[a] - tickets[b] || a - b;
+    });
+    steps.push('Bakery tickets T0=2 T1=1 T2=1 T3=3 -> order ' +
+               order.map(function (t) { return 'T' + t; }).join(' -> ') +
+               ' (equal tickets break by thread id).');
+    return steps;
+  }
+
+  // ---- message passing and shared memory ------------------------------------
+  function ipcTrace() {
+    var capacity = 2, queue = [], steps = [];
+    function send(pid, text) {
+      if (queue.length === capacity) {
+        steps.push('P' + pid + ' sends "' + text + '": BLOCKED, message queue is full.');
+        return false;
+      }
+      queue.push({ pid: pid, text: text });
+      steps.push('P' + pid + ' sends "' + text + '": queued. Queue depth=' + queue.length + '.');
+      return true;
+    }
+    function receive() {
+      if (!queue.length) { steps.push('Receiver: queue empty, would block.'); return; }
+      var message = queue.shift();
+      steps.push('Receiver gets from P' + message.pid + ': "' + message.text +
+                 '". Queue depth=' + queue.length + '.');
+    }
+    send(1, 'compile /src/main.cpp');
+    send(2, 'status?');
+    send(3, 'extra');
+    receive();
+    receive();
+    receive();
+
+    var data = '', readers = [1, 2];
+    function write(pid, text) {
+      if (pid !== 1) { steps.push('P' + pid + ' write denied: it is not the shared-memory owner.'); return; }
+      data = text;
+      steps.push('P' + pid + ' writes shared memory: "' + data + '".');
+    }
+    function read(pid) {
+      if (readers.indexOf(pid) < 0) { steps.push('P' + pid + ' read denied: no permission.'); return; }
+      steps.push('P' + pid + ' reads shared memory: "' + data + '".');
+    }
+    steps.push('');
+    write(1, 'result=42');
+    read(2);
+    write(2, 'tampered');
+    read(3);
+    return steps;
+  }
+
+  // ---- TLB and working set ---------------------------------------------------
+  function tlbTrace() {
+    var pageTable = { '1:0': 4, '1:1': 9 }, capacity = 2, tlb = [], clock = 0, steps = [];
+    steps.push('Page size 100. Page table: P1 page 0 -> frame 4, page 1 -> frame 9. TLB capacity 2.');
+    [{ page: 0, offset: 12 }, { page: 0, offset: 35 }, { page: 1, offset: 4 },
+     { page: 2, offset: 0 }].forEach(function (access) {
+      clock++;
+      var hit = tlb.filter(function (entry) {
+        return entry.pid === 1 && entry.page === access.page;
+      })[0];
+      if (hit) {
+        hit.age = clock;
+        steps.push('Access P1:' + access.page + '+' + access.offset + ' -> TLB HIT, frame ' +
+                   hit.frame + ', physical address ' + (hit.frame * 100 + access.offset) + '.');
+        return;
+      }
+      var key = '1:' + access.page;
+      if (!(key in pageTable)) {
+        steps.push('Access P1:' + access.page + '+' + access.offset +
+                   ' -> TLB MISS and PAGE FAULT: the page is not resident.');
+        return;
+      }
+      if (tlb.length === capacity) {
+        tlb.sort(function (a, b) { return a.age - b.age; });
+        steps.push('TLB full: evict P' + tlb[0].pid + ' page ' + tlb[0].page + ' (LRU).');
+        tlb.shift();
+      }
+      tlb.push({ pid: 1, page: access.page, frame: pageTable[key], age: clock });
+      steps.push('Access P1:' + access.page + '+' + access.offset +
+                 ' -> TLB MISS, page-table lookup gives frame ' + pageTable[key] +
+                 ', physical address ' + (pageTable[key] * 100 + access.offset) + '.');
+    });
+    return steps;
+  }
+  function workingSet(refs, window, frames) {
+    var rows = [], thrashing = false;
+    for (var end = 0; end < refs.length; end++) {
+      var begin = Math.max(0, end + 1 - window), pages = [];
+      for (var i = begin; i <= end; i++)
+        if (pages.indexOf(refs[i]) < 0) pages.push(refs[i]);
+      var pressure = pages.length > frames;
+      thrashing = thrashing || pressure;
+      rows.push({ t: end + 1, pages: pages, pressure: pressure });
+    }
+    return { rows: rows, thrashing: thrashing };
+  }
+
+  // ---- process lifecycle and thread models -----------------------------------
+  function lifecycleTrace() {
+    var processes = [
+      { pid: 1, name: 'editor', state: 'NEW', burst: 5, priority: 1 },
+      { pid: 2, name: 'compiler', state: 'NEW', burst: 8, priority: 2 }
+    ];
+    var steps = [], time = 0;
+    function move(pid, next, reason) {
+      var process = processes.filter(function (p) { return p.pid === pid; })[0];
+      if (process.state === next) return;
+      steps.push('[t=' + time + '] P' + pid + ' (' + process.name + '): ' + process.state +
+                 ' → ' + next + ' (' + reason + ')');
+      process.state = next;
+    }
+    move(1, 'READY', 'created by the kernel');
+    move(2, 'READY', 'created by the kernel');
+    move(1, 'RUNNING', 'dispatcher selects the higher-priority editor');
+    time = 2;
+    move(1, 'WAITING', 'requests a simulated disk read');
+    time = 5;
+    move(1, 'READY', 'disk interrupt: I/O complete');
+    move(1, 'RUNNING', 'dispatcher resumes it');
+    time = 7;
+    move(2, 'TERMINATED', 'exits after its CPU slice');
+    time = 9;
+    move(1, 'TERMINATED', 'exits; memory and resources released');
+    steps.push('User mode calls readFile(); a trap switches to kernel mode, the kernel validates access, performs the I/O and returns.');
+    return steps;
+  }
+  function threadModelTrace() {
+    var steps = [], manyToOne = [{ id: 1, state: 'RUNNING' }, { id: 2, state: 'READY' }];
+    steps.push('Many-to-one: T1 and T2 share one kernel thread.');
+    manyToOne[0].state = 'BLOCKED';
+    manyToOne[1].state = 'BLOCKED';
+    steps.push('T1 blocks for I/O -> the shared kernel thread blocks, so T2 is ' +
+               manyToOne[1].state + ' too.');
+    var oneToOne = [{ id: 1, state: 'BLOCKED' }, { id: 2, state: 'RUNNING' }];
+    steps.push('One-to-one: each user thread has its own kernel thread.');
+    steps.push('T1 blocks for I/O -> T2 stays ' + oneToOne[1].state + ' and continues.');
+    steps.push('This illustration creates no real OS threads.');
+    return steps;
+  }
+
   return {
     APP_KINDS: APP_KINDS, KIND_INFO: KIND_INFO,
     newFs: newFs, seedFs: seedFs, fsWrite: fsWrite, fsRead: fsRead, fsDelete: fsDelete,
@@ -1263,7 +1689,13 @@ var KernelCore = (function () {
     blocksFor: blocksFor, parentOf: parentOf,
     stepsFor: stepsFor, makeApp: makeApp, catalog: catalog,
     pickRequest: pickRequest, simulateRequests: simulateRequests, demoRequests: demoRequests,
-    requestStats: requestStats, serviceTicks: serviceTicks, runKernel: runKernel
+    requestStats: requestStats, serviceTicks: serviceTicks, runKernel: runKernel,
+    deadlockSample: deadlockSample, deadlockDetect: deadlockDetect,
+    deadlockRecover: deadlockRecover, killKey: killKey,
+    semaphoreTrace: semaphoreTrace, producerConsumerTrace: producerConsumerTrace,
+    diningTrace: diningTrace, petersonTrace: petersonTrace, ipcTrace: ipcTrace,
+    tlbTrace: tlbTrace, workingSet: workingSet,
+    lifecycleTrace: lifecycleTrace, threadModelTrace: threadModelTrace
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = KernelCore;
@@ -1294,6 +1726,7 @@ function runQueueScheduler(input, algorithm) {
     if (running >= 0) {
       const runningLevel = levels[running];
       if (queues.slice(0, runningLevel).some(q => q.length)) {
+        log.push({ t: t, decision: 'P' + procs[running].pid + ' preempted: a process in a higher queue is ready.' });
         setState(running, 'READY', t);
         queues[runningLevel].unshift(running);
         running = -1;
@@ -1306,6 +1739,9 @@ function runQueueScheduler(input, algorithm) {
       }
       if (running >= 0) {
         if (procs[running].response < 0) procs[running].response = t - procs[running].arrival;
+        log.push({ t: t, decision: 'P' + procs[running].pid + ' (' + procs[running].name +
+          ') selected from ' + (algorithm === 'MLQ' ? 'static queue ' : 'feedback queue ') +
+          levels[running] + ', the highest non-empty queue.' });
         setState(running, 'RUNNING', t); cs++; slice = 0;
       }
     }
@@ -1350,6 +1786,24 @@ function runScheduler(input, algo, q) {
     }
     return best;
   };
+  const decisionText = idx => {
+    const chosen = procs[idx];
+    const rivals = ready.filter(i => i !== idx).map(i => procs[i]);
+    const label = algo === 'FCFS' ? 'earliest arrival time in the READY queue'
+      : algo === 'SJF' ? 'shortest total CPU burst in the READY queue'
+      : algo === 'SRTF' ? 'shortest remaining time in the READY queue'
+      : algo === 'PRIORITY' ? 'lowest priority number in the READY queue'
+      : 'front of the round-robin READY queue';
+    const tied = rivals.filter(p =>
+      algo === 'SJF' ? p.burst === chosen.burst
+      : algo === 'SRTF' ? p.remaining === chosen.remaining
+      : algo === 'PRIORITY' ? p.priority === chosen.priority
+      : p.arrival === chosen.arrival);
+    let text = 'P' + chosen.pid + ' (' + chosen.name + ') selected: ' + label;
+    if (rivals.length) text += ' among ' + [chosen].concat(rivals).map(p => 'P' + p.pid).join(', ');
+    if (tied.length) text += '; tie broken by earlier arrival time, then lower PID';
+    return text;
+  };
   while (done < n && t < 5000) {
     for (let i = 0; i < n; i++) if (procs[i].arrival === t) { setState(i, 'READY', t); ready.push(i); }
     if (running !== -1) {
@@ -1360,10 +1814,16 @@ function runScheduler(input, algo, q) {
         preempt = algo === 'SRTF' ? c.remaining < r.remaining : c.priority < r.priority;
       }
       if (algo === 'RR' && slice >= q && !ready.length) slice = 0;
-      if (preempt) { setState(running, 'READY', t); ready.push(running); running = -1; }
+      if (preempt) {
+        const candidate = procs[ready[pick()]];
+        log.push({ t: t, decision: 'P' + procs[running].pid + ' preempted by P' + candidate.pid +
+          ' (' + (algo === 'SRTF' ? 'shorter remaining time' : 'better priority') + ').' });
+        setState(running, 'READY', t); ready.push(running); running = -1;
+      }
     }
     if (running === -1 && ready.length) {
       const pos = pick();
+      log.push({ t: t, decision: decisionText(ready[pos]) });
       running = ready[pos];
       ready.splice(pos, 1);
       setState(running, 'RUNNING', t);
@@ -1580,13 +2040,38 @@ function bankRequest(s, pid, req) {
     shown.forEach((e, i) => {
       const d = el('div', i === shown.length - 1 && !done ? 'last' : '');
       d.appendChild(el('span', 't', '[t=' + e.t + ']'));
-      d.appendChild(document.createTextNode('P' + e.pid + ' (' + e.name + '): '));
-      d.appendChild(el('span', 'st-' + e.from, e.from));
-      d.appendChild(document.createTextNode(' → '));
-      d.appendChild(el('span', 'st-' + e.to, e.to));
+      if (e.decision) {
+        d.appendChild(el('span', 'st-READY', 'scheduler: '));
+        d.appendChild(document.createTextNode(e.decision));
+      } else {
+        d.appendChild(document.createTextNode('P' + e.pid + ' (' + e.name + '): '));
+        d.appendChild(el('span', 'st-' + e.from, e.from));
+        d.appendChild(document.createTextNode(' → '));
+        d.appendChild(el('span', 'st-' + e.to, e.to));
+      }
       lg.appendChild(d);
     });
     lg.scrollTop = lg.scrollHeight;
+
+    const queues = $('sched-queues');
+    if (queues) {
+      queues.innerHTML = '';
+      const stateOf = idx => {
+        let state = 'NEW';
+        r.log.forEach(entry => {
+          if (!entry.decision && entry.idx === idx && entry.t <= tNow) state = entry.to;
+        });
+        return state;
+      };
+      const groups = { RUNNING: [], READY: [], WAITING: [], TERMINATED: [], NEW: [] };
+      r.procs.forEach((p, idx) => {
+        const state = stateOf(idx);
+        (groups[state] = groups[state] || []).push('P' + p.pid);
+      });
+      const line = ['RUNNING', 'READY', 'WAITING', 'TERMINATED']
+        .map(state => state + '=[' + (groups[state] || []).join(',') + ']').join('   ');
+      queues.appendChild(el('div', '', line));
+    }
   }
 
   function renderCompare() {
@@ -1616,6 +2101,13 @@ function bankRequest(s, pid, req) {
     $('scrub').value = tNow; renderSched();
   });
   $('scrub').addEventListener('input', () => { stopPlay(); tNow = parseInt($('scrub').value, 10); renderSched(); });
+  $('step').addEventListener('click', () => {
+    stopPlay();
+    if (!result) return;
+    tNow = tNow >= result.total ? 0 : tNow + 1;
+    $('scrub').value = tNow;
+    renderSched();
+  });
   $('algo').addEventListener('change', () => recompute(true));
   $('quantum').addEventListener('input', () => recompute(true));
   $('add-proc').addEventListener('click', () => {
@@ -1709,42 +2201,10 @@ function bankRequest(s, pid, req) {
     box.scrollTop = box.scrollHeight;
   }
 
-  function producerConsumerTrace() {
-    return [
-      'Initial: buffer=[] empty=2 full=0 mutex=1',
-      'C1 waits on full: BLOCKED (buffer empty)',
-      'P1 acquires empty and mutex; produces item 10',
-      'P1 signals full: wakes C1; permit is handed directly to C1',
-      'C1 consumes item 10; signals empty',
-      'P1 produces 20; P1 produces 30; buffer is full',
-      'P2 waits on empty: BLOCKED (buffer full)',
-      'C2 consumes item 20; signals empty: wakes P2',
-      'P2 uses the handed-off slot and produces item 40',
-      'Bounded-buffer invariant maintained; no overflow or underflow.'
-    ];
-  }
-  function diningTrace() {
-    return [
-      'Unsafe left-first policy:',
-      'P0..P4 each take their left fork.',
-      'Each waits for the next fork held by a neighbor: circular wait -> DEADLOCK.',
-      '',
-      'Fixed resource-order policy:',
-      'Every philosopher takes the lower-numbered fork first, then the higher one.',
-      'A circular wait cannot form; all five can eat and release their forks.'
-    ];
-  }
-  function petersonTrace() {
-    return [
-      'T0 sets flag[0]=true and turn=1; enters the critical section.',
-      'T1 sets flag[1]=true and turn=0; waits while T0 is interested.',
-      'T0 exits and clears flag[0].',
-      'T1 enters next. The interleaving has at most one critical-section owner.'
-    ];
-  }
-  $('pc-run').addEventListener('click', () => showLog('sync-log', producerConsumerTrace()));
-  $('dining-run').addEventListener('click', () => showLog('sync-log', diningTrace()));
-  $('peterson-run').addEventListener('click', () => showLog('sync-log', petersonTrace()));
+  $('pc-run').addEventListener('click', () => showLog('sync-log', KernelCore.producerConsumerTrace()));
+  $('dining-run').addEventListener('click', () => showLog('sync-log', KernelCore.diningTrace()));
+  $('peterson-run').addEventListener('click', () => showLog('sync-log', KernelCore.petersonTrace()));
+  $('sem-run').addEventListener('click', () => showLog('sync-log', KernelCore.semaphoreTrace()));
 
   function runDisk(requests, head, size, algorithm) {
     if (!requests.length || !Number.isInteger(head) || !Number.isInteger(size) || size <= 0 ||
@@ -1888,6 +2348,71 @@ function bankRequest(s, pid, req) {
       maps.appendChild(card);
     });
   }
+  // Interactive allocator: the user drives the same fit policies with their own
+  // allocation/release sequence.
+  let mem2Regions = [{ start: 0, size: 100, pid: 0 }];
+  let mem2Log = [];
+  function mem2Capacity() {
+    const value = parseInt($('mem2-capacity').value, 10);
+    return value >= 20 && value <= 512 ? value : 100;
+  }
+  function mem2Render() {
+    const capacity = mem2Capacity();
+    $('mem2-capacity').value = capacity;
+    const map = $('mem2-map'); map.innerHTML = '';
+    mem2Regions.forEach(region => {
+      const cell = el('div', 'memory-region' + (region.pid === 0 ? ' free' : ''),
+                      region.pid === 0 ? 'FREE' : 'P' + region.pid);
+      cell.style.width = (100 * region.size / capacity) + '%';
+      if (region.pid !== 0) cell.style.background = col(region.pid - 1);
+      cell.title = 'start=' + region.start + ', size=' + region.size;
+      map.appendChild(cell);
+    });
+    const free = mem2Regions.filter(r => r.pid === 0).reduce((sum, r) => sum + r.size, 0);
+    const largest = mem2Regions.reduce((best, r) => r.pid === 0 ? Math.max(best, r.size) : best, 0);
+    const stats = $('mem2-stats'); stats.innerHTML = '';
+    [['used', (capacity - free) + '/' + capacity], ['free', String(free)],
+     ['largest hole', String(largest)], ['external fragmentation', String(free - largest)]].forEach(pair => {
+      const d = el('div', 'stat'); d.appendChild(el('b', '', pair[1]));
+      d.appendChild(el('span', '', pair[0])); stats.appendChild(d);
+    });
+    const log = $('mem2-log'); log.innerHTML = '';
+    mem2Log.slice(-10).forEach(line => log.appendChild(el('div', '', line)));
+  }
+  function mem2Reset() {
+    mem2Regions = [{ start: 0, size: mem2Capacity(), pid: 0 }];
+    mem2Log = [];
+    mem2Render();
+  }
+  $('mem2-allocate').addEventListener('click', () => {
+    const pid = parseInt($('mem2-pid').value, 10);
+    const size = parseInt($('mem2-size').value, 10);
+    const policy = $('mem2-policy').value;
+    if (!(pid > 0) || !(size > 0)) { mem2Log.push('Enter a positive PID and size.'); mem2Render(); return; }
+    if (mem2Regions.some(region => region.pid === pid)) {
+      mem2Log.push('P' + pid + ' already owns a partition; release it first.'); mem2Render(); return;
+    }
+    if (allocateRegion(mem2Regions, pid, size, policy)) {
+      mem2Log.push(policy + ': allocated P' + pid + ' (' + size + ' units).');
+      mem2Render();
+    } else {
+      mem2Log.push(policy + ': P' + pid + ' (' + size + ' units) FAILED - no hole is large enough.');
+      mem2Render();
+    }
+  });
+  $('mem2-release').addEventListener('click', () => {
+    const pid = parseInt($('mem2-pid').value, 10);
+    const region = mem2Regions.find(r => r.pid === pid);
+    if (!region) { mem2Log.push('P' + pid + ' has no partition.'); mem2Render(); return; }
+    region.pid = 0;
+    mergeMemory(mem2Regions);
+    mem2Log.push('Released P' + pid + '; adjacent free regions coalesced.');
+    mem2Render();
+  });
+  $('mem2-reset').addEventListener('click', mem2Reset);
+  $('mem2-capacity').addEventListener('change', mem2Reset);
+  mem2Render();
+
   $('memory-run').addEventListener('click', renderMemory);
   $('mem-capacity').addEventListener('change', renderMemory);
 
@@ -1904,51 +2429,104 @@ function bankRequest(s, pid, req) {
   }
   $('seg-translate').addEventListener('click', translateSegment);
   function tlbDemo() {
-    showLog('tlb-log', [
-      'Page table: P1 page 0 → frame 4; page 1 → frame 9. TLB capacity: 2.',
-      'Access P1:0 + 12 → TLB MISS, page-table lookup, physical address 412.',
-      'Access P1:0 + 35 → TLB HIT, physical address 435.',
-      'Access P1:1 + 4 → TLB MISS, page-table lookup, physical address 904.',
-      'Access P1:2 + 0 → TLB MISS + PAGE FAULT (page is not resident).',
-      'Working-set window 4, frames 3: reference set 1 2 1 3 → WSS=3 (fits).',
-      'Next window 2 1 3 4 → WSS=4 (memory pressure / thrashing risk).'
-    ]);
+    const lines = KernelCore.tlbTrace();
+    const ws = KernelCore.workingSet([1, 2, 1, 3, 4, 3, 4, 5, 6, 5, 6], 4, 3);
+    lines.push('');
+    ws.rows.forEach(row => {
+      lines.push('t=' + row.t + ' WSS=' + row.pages.length + ' pages [' + row.pages.join(' ') + '] ' +
+        (row.pressure ? 'MEMORY PRESSURE' : 'OK'));
+    });
+    lines.push(ws.thrashing ? 'Thrashing risk: a working set exceeds the available frames.'
+                            : 'No working-set window exceeds the available frames.');
+    showLog('tlb-log', lines);
   }
   $('tlb-run').addEventListener('click', tlbDemo);
 
-  $('lifecycle-run').addEventListener('click', () => showLog('lifecycle-log', [
-    '[t=0] Kernel creates P6 (editor), priority 1: NEW → READY',
-    '[t=0] Dispatcher selects P6: READY → RUNNING',
-    '[t=2] P6 requests disk read: RUNNING → WAITING',
-    '[t=3] Disk interrupt signals I/O complete: WAITING → READY',
-    '[t=3] Dispatcher resumes P6: READY → RUNNING',
-    '[t=5] P6 exits: RUNNING → TERMINATED',
-    'User mode calls readFile(); a trap switches to kernel mode, validates access, performs I/O, then returns to user mode.'
-  ]));
-  $('thread-run').addEventListener('click', () => showLog('thread-log', [
-    'Many-to-one: T1 and T2 map to one kernel thread.',
-    'T1 blocks for I/O → the shared kernel thread blocks; T2 cannot run.',
-    'One-to-one: each user thread maps to a kernel thread.',
-    'T1 blocks for I/O → T2 can still run.',
-    'This deterministic illustration creates no real OS threads.'
-  ]));
+  $('lifecycle-run').addEventListener('click', () =>
+    showLog('lifecycle-log', KernelCore.lifecycleTrace()));
+  $('thread-run').addEventListener('click', () =>
+    showLog('thread-log', KernelCore.threadModelTrace()));
 
-  $('deadlock-run').addEventListener('click', () => showLog('deadlock-log', [
-    'Initial: P0 holds R0 and requests R1; P1 holds R1 and requests R0.',
-    'Wait-for graph: P0 → P1 → P0.',
-    'Cycle detected: P0 and P1 are deadlocked.',
-    'Recovery selects P0 as victim and terminates it.',
-    'Release R0; P1 can acquire R0 and finish.',
-    'Re-run detection: no deadlock remains.'
-  ]));
-  $('ipc-run').addEventListener('click', () => showLog('ipc-log', [
-    'Message queue capacity = 2.',
-    'P1 sends “compile”: queued. P2 sends “status?”: queued.',
-    'P3 sends “extra”: blocked because the queue is full.',
-    'Receiver gets P1’s message, then P2’s; a queue slot becomes available.',
-    'Shared memory: P1 writes result=42; P2 reads it.',
-    'P2 write is denied: P1 owns the shared region.'
-  ]));
+  // Deadlock: a real multi-instance detection and recovery model.
+  let deadlockState = KernelCore.deadlockSample();
+  function renderDeadlock() {
+    const table = $('deadlock-table'); table.innerHTML = '';
+    const head = el('tr');
+    head.appendChild(el('th', '', 'Process'));
+    head.appendChild(el('th', '', 'Allocation (R0 R1)'));
+    head.appendChild(el('th', '', 'Request (R0 R1)'));
+    head.appendChild(el('th', '', 'Outstanding need'));
+    table.appendChild(head);
+    deadlockState.allocation.forEach((row, pid) => {
+      const tr = el('tr');
+      tr.appendChild(el('td', '', 'P' + pid));
+      tr.appendChild(el('td', '', row.join('  ')));
+      tr.appendChild(el('td', '', deadlockState.request[pid].join('  ')));
+      tr.appendChild(el('td', '', deadlockState.request[pid].every(x => x === 0) ? 'none' : 'waiting'));
+      table.appendChild(tr);
+    });
+  }
+  $('deadlock-run').addEventListener('click', () => {
+    const detection = KernelCore.deadlockDetect(deadlockState);
+    const lines = [];
+    lines.push('Detection algorithm: Work = [' + deadlockState.available.join(' ') + '].');
+    detection.trace.forEach(step => {
+      lines.push('P' + step.pid + ' can finish; releases [' + step.released.join(' ') +
+        ']; Work ' + step.before.join(' ') + ' -> ' + step.after.join(' ') + '.');
+    });
+    lines.push(detection.deadlocked.length
+      ? 'Deadlocked processes: ' + detection.deadlocked.map(pid => 'P' + pid).join(', ') + '.'
+      : 'No deadlock detected; every process can finish.');
+    if (detection.deadlocked.length)
+      lines.push('Wait-for cycle: ' + detection.deadlocked.map(pid => 'P' + pid).join(' -> ') +
+        ' -> P' + detection.deadlocked[0] + '.');
+    showLog('deadlock-log', lines);
+    renderDeadlock();
+    const message = $('deadlock-msg');
+    message.className = 'msg ' + (detection.deadlocked.length ? 'no' : 'ok');
+    message.textContent = detection.deadlocked.length
+      ? 'Deadlocked: ' + detection.deadlocked.map(pid => 'P' + pid).join(', ') + '. Recovery is needed.'
+      : 'System is not deadlocked.';
+  });
+  $('deadlock-recover').addEventListener('click', () => {
+    const outcome = KernelCore.deadlockRecover(deadlockState, $('deadlock-policy').value);
+    if (outcome.victim < 0) {
+      showLog('deadlock-log', ['No deadlocked process to recover.']);
+      $('deadlock-msg').className = 'msg ok';
+      $('deadlock-msg').textContent = 'Nothing to recover.';
+      return;
+    }
+    const before = deadlockState;
+    deadlockState = outcome.state;
+    const lines = [];
+    lines.push('Policy: ' + $('deadlock-policy').value + ' -> terminate P' + outcome.victim + '.');
+    lines.push('Before: Available [' + before.available.join(' ') + '], P' + outcome.victim +
+      ' held [' + before.allocation[outcome.victim].join(' ') + '].');
+    lines.push('After: Available [' + deadlockState.available.join(' ') + '], P' + outcome.victim +
+      ' holds [0 0] and has no outstanding request.');
+    lines.push(outcome.after.deadlocked.length
+      ? 'Re-run detection: still deadlocked: ' +
+        outcome.after.deadlocked.map(pid => 'P' + pid).join(', ') + '.'
+      : 'Re-run detection: no deadlock remains; remaining processes can finish.');
+    showLog('deadlock-log', lines);
+    renderDeadlock();
+    $('deadlock-msg').className = 'msg ' + (outcome.after.deadlocked.length ? 'no' : 'ok');
+    $('deadlock-msg').textContent = 'P' + outcome.victim + ' terminated and its resources released.';
+  });
+  $('deadlock-reset').addEventListener('click', () => {
+    deadlockState = KernelCore.deadlockSample();
+    renderDeadlock();
+    showLog('deadlock-log', ['State reset to the sample deadlock.']);
+    $('deadlock-msg').className = 'msg';
+    $('deadlock-msg').textContent = 'Available: ' + deadlockState.available.join('  ') +
+      '  (R0 R1). Detect the deadlock, then choose a victim policy and recover.';
+  });
+  renderDeadlock();
+  $('deadlock-msg').className = 'msg';
+  $('deadlock-msg').textContent = 'Available: ' + deadlockState.available.join('  ') +
+    '  (R0 R1). Detect the deadlock, then choose a victim policy and recover.';
+
+  $('ipc-run').addEventListener('click', () => showLog('ipc-log', KernelCore.ipcTrace()));
 
   // The file-system tab uses the same simulated file system as the kernel core,
   // so file contents, block accounting and app-created files stay consistent.
@@ -2100,7 +2678,7 @@ function bankRequest(s, pid, req) {
   recompute(true);
   renderPaging();
   renderBank();
-  showLog('sync-log', producerConsumerTrace());
+  showLog('sync-log', KernelCore.producerConsumerTrace());
   renderDisk();
   renderMemory();
   renderFs();
@@ -2128,7 +2706,7 @@ function bankRequest(s, pid, req) {
     kind: app.kind, name: app.name, priority: app.priority,
     arrival: app.arrival, memory: app.memory, burst: app.burst
   }));
-  const state = { run: null, tick: 0, timer: null };
+  const state = { run: null, tick: 0, timer: null, kills: [] };
   let ioRuns = null;
 
   function defaultBurst(kind) { return KernelCore.makeApp(kind, 1).burst; }
@@ -2146,9 +2724,17 @@ function bankRequest(s, pid, req) {
     if (state.timer) { clearInterval(state.timer); state.timer = null; }
     $('dash-play').textContent = 'Play'; $('app-play').textContent = 'Play';
   }
+  function appMessage(text, kind) {
+    const box = $('app-message');
+    if (!box) return;
+    box.textContent = text || '';
+    box.className = 'msg' + (kind ? ' ' + kind : '');
+    box.style.display = text ? 'block' : 'none';
+  }
   function invalidate() {
     stopPlay();
-    state.run = null; state.tick = 0;
+    state.run = null; state.tick = 0; state.kills = [];
+    appMessage('');
     renderDash(); renderApps(); renderRunIo();
   }
   function renderLaunch() {
@@ -2222,6 +2808,8 @@ function bankRequest(s, pid, req) {
   }
   function compute() {
     stopPlay();
+    state.kills = [];
+    appMessage('');
     state.run = KernelCore.runKernel(specsFromRows(), {
       cpu: $('app-cpu').value, io: $('app-io').value, memory: 96
     });
@@ -2252,7 +2840,41 @@ function bankRequest(s, pid, req) {
     else state.tick++;
     renderAll();
   }
-  function reset() { stopPlay(); state.tick = 0; renderAll(); }
+  function reset() {
+    stopPlay();
+    state.kills = [];
+    if (state.run) {
+      state.run = KernelCore.runKernel(specsFromRows(), {
+        cpu: $('app-cpu').value, io: $('app-io').value, memory: 96
+      });
+      if (window.MiniKernelFs) window.MiniKernelFs.replace(state.run.fs);
+    }
+    state.tick = 0;
+    appMessage('');
+    renderAll();
+  }
+
+  function terminateApp(pid) {
+    const run = ensureRun();
+    const snap = snapshot();
+    const target = snap.procs.filter(p => p.pid === pid)[0];
+    if (!target) return;
+    if (target.state === 'TERMINATED') {
+      appMessage('P' + pid + ' is already terminated at t=' + snap.time + '.', 'wait');
+      return;
+    }
+    const at = Math.max(1, snap.time);
+    state.kills.push({ pid: pid, at: at });
+    state.run = KernelCore.runKernel(specsFromRows(), {
+      cpu: $('app-cpu').value, io: $('app-io').value, memory: 96,
+      kills: state.kills
+    });
+    state.tick = Math.min(at + 1, state.run.snapshots.length - 1);
+    if (window.MiniKernelFs) window.MiniKernelFs.replace(state.run.fs);
+    renderAll();
+    appMessage('P' + pid + ' terminated at t=' + at +
+      ': memory, Banker resources and any pending file request were released.', 'no');
+  }
 
   function stat(parent, value, label) {
     const d = el('div', 'stat'); d.appendChild(el('b', '', value)); d.appendChild(el('span', '', label));
@@ -2365,7 +2987,7 @@ function bankRequest(s, pid, req) {
       ['P' + p.pid, p.name, String(p.priority), p.state, p.step + '/' + p.steps,
        String(Math.max(0, p.remaining)), String(p.ioWait), String(p.dispatches),
        done ? String(p.finish) : '—', done ? String(tat) : '—',
-       done ? String(tat - p.burst - p.ioWait) : '—', p.response < 0 ? '—' : String(p.response)
+       done ? String(Math.max(0, tat - p.burst - p.ioWait)) : '—', p.response < 0 ? '—' : String(p.response)
       ].forEach(x => row.appendChild(el('td', '', x)));
       procs.appendChild(row);
     });
@@ -2375,13 +2997,13 @@ function bankRequest(s, pid, req) {
     const run = state.run, snap = snapshot();
     $('app-clock').textContent = 't = ' + (snap ? snap.time : 0) + (run ? ' / ' + run.elapsed : '');
     const table = $('app-status'); table.innerHTML = '';
-    const head = el('tr'); ['PID', 'Application', 'Priority', 'State', 'Progress', 'Remaining', 'I/O wait', 'Result'].forEach(h => head.appendChild(el('th', '', h)));
+    const head = el('tr'); ['PID', 'Application', 'Priority', 'State', 'Progress', 'Remaining', 'I/O wait', 'Result', 'Action'].forEach(h => head.appendChild(el('th', '', h)));
     table.appendChild(head);
     if (!snap) {
       rows.forEach((row, index) => {
         const tr = el('tr');
         ['P' + (index + 1), row.name, String(row.priority), 'NOT RUN', '—', String(row.burst), '—',
-         'Press Run to execute the applications'].forEach(x => tr.appendChild(el('td', '', x)));
+         'Press Run to execute the applications', '—'].forEach(x => tr.appendChild(el('td', '', x)));
         table.appendChild(tr);
       });
     } else {
@@ -2390,6 +3012,13 @@ function bankRequest(s, pid, req) {
         const result = p.state === 'TERMINATED' ? (p.result || '(finished)') : '—';
         ['P' + p.pid, p.name, String(p.priority), p.state, p.step + '/' + p.steps,
          String(Math.max(0, p.remaining)), String(p.ioWait), result].forEach(x => tr.appendChild(el('td', '', x)));
+        const action = el('td');
+        const kill = el('button', 'btn', p.state === 'TERMINATED' ? 'Terminated' : 'Terminate');
+        kill.type = 'button';
+        kill.disabled = p.state === 'TERMINATED';
+        kill.addEventListener('click', () => terminateApp(p.pid));
+        action.appendChild(kill);
+        tr.appendChild(action);
         table.appendChild(tr);
       });
     }
@@ -2422,18 +3051,18 @@ function bankRequest(s, pid, req) {
 
   function renderRunIo() {
     const table = $('io-run-table'); table.innerHTML = '';
-    const head = el('tr'); ['ID', 'Pid', 'Application', 'Op', 'Path', 'Priority', 'Submitted', 'Order', 'Wait', 'Status'].forEach(h => head.appendChild(el('th', '', h)));
+    const head = el('tr'); ['ID', 'Pid', 'Application', 'Op', 'Path', 'Priority', 'Submitted', 'Depth', 'Order', 'Wait', 'Status'].forEach(h => head.appendChild(el('th', '', h)));
     table.appendChild(head);
     const run = state.run, snap = snapshot();
     if (!run || !snap) {
       const row = el('tr'); const cell = el('td', '', 'Run the applications to populate this table.');
-      cell.colSpan = 10; row.appendChild(cell); table.appendChild(row);
+      cell.colSpan = 11; row.appendChild(cell); table.appendChild(row);
       return;
     }
     run.requests.filter(r => r.submitted <= snap.time).forEach(request => {
       const row = el('tr');
       [String(request.id), 'P' + request.pid, request.app, request.op, request.path, String(request.priority),
-       String(request.submitted), request.order ? String(request.order) : '—',
+       String(request.submitted), String(request.depth || 1), request.order ? String(request.order) : '—',
        request.completed >= 0 ? String(request.completed - request.submitted) : '—', request.status]
         .forEach(x => row.appendChild(el('td', '', x)));
       table.appendChild(row);
@@ -2472,12 +3101,13 @@ function bankRequest(s, pid, req) {
     order($('io-priority-order'), priority);
 
     const table = $('io-table'); table.innerHTML = '';
-    const head = el('tr'); ['ID', 'Application', 'Operation', 'Priority', 'Submitted', 'FCFS order/wait', 'Priority order/wait'].forEach(h => head.appendChild(el('th', '', h)));
+    const head = el('tr'); ['ID', 'Application', 'Operation', 'Path', 'Priority', 'Submitted', 'Queue depth', 'Status', 'FCFS order/wait', 'Priority order/wait'].forEach(h => head.appendChild(el('th', '', h)));
     table.appendChild(head);
     fcfs.requests.forEach(request => {
       const other = priority.requests.find(candidate => candidate.id === request.id);
       const row = el('tr');
-      [String(request.id), request.app, request.op, String(request.priority), String(request.submitted),
+      [String(request.id), request.app, request.op, request.path, String(request.priority), String(request.submitted),
+       String(request.depth || 1), request.status,
        request.order + ' / ' + request.wait, other.order + ' / ' + other.wait]
         .forEach(x => row.appendChild(el('td', '', x)));
       table.appendChild(row);

@@ -8,6 +8,48 @@ system. A self-contained browser visualizer demonstrates the same concepts.
 Course: **BCSE303L Operating Systems**. Team: Suyash Singh, Pratik Tekriwal,
 Aditya Sharma.
 
+## Frontend-first demonstration (no terminal required)
+
+**Everything needed for the review runs in the browser.** Open
+`web/index.html` in a modern browser and use the tabs; the C++ program is kept
+for reference and regression tests but is **not required** for the demo and is
+never invoked by the page.
+
+| Feature | Where in the browser | Runs entirely in the browser? |
+| --- | --- | --- |
+| Launch / configure / terminate applications | Applications | Yes — live JS kernel |
+| Process states, queues, I/O wait and wake-up | Kernel dashboard, Applications | Yes |
+| CPU scheduling (FCFS, SJF, SRTF, Priority, RR, MLQ, MLFQ) + decision reasons | CPU scheduling, Dashboard | Yes |
+| Gantt charts, metrics, execution logs | CPU scheduling, Dashboard, Integrated run | Yes |
+| Virtual file system (create/read/write/append/rename/copy/move/delete/metadata/blocks) | File system | Yes |
+| File/I/O request queue (FCFS vs priority, same requests) | I/O queue, Dashboard | Yes |
+| First / Best / Worst Fit + interactive allocator | Memory manager | Yes |
+| Banker's algorithm | Deadlock avoidance | Yes |
+| Deadlock detection and recovery | Deadlock & IPC | Yes |
+| Semaphores, mutex, producer–consumer, dining philosophers, Peterson/Bakery | Synchronization | Yes |
+| Message queue and shared memory (IPC) | Deadlock & IPC | Yes |
+| FIFO / LRU / Optimal paging | Memory paging | Yes |
+| FCFS / SSTF / SCAN / C-SCAN disk scheduling | Disk scheduling | Yes |
+| TLB and working-set / thrashing trace | Memory manager | Yes |
+
+No backend, database, build step or console input is involved. A static server is
+optional; the page also works when opened directly from disk.
+
+### Quick start
+
+1. Open `web/index.html` in Chrome, Edge or Firefox (double-click is enough).
+2. **Kernel dashboard → Run to completion**; then **Step** or **Play** to watch
+   queues, RAM, file requests and decisions.
+3. **Applications** → edit a priority/burst, press **Run to completion**, and use
+   **Terminate** on a live process.
+4. **I/O queue** → **Run comparison** for the FCFS-vs-priority proof.
+5. **File system** → write/append/copy/rename/delete and watch the block map.
+
+If your browser restricts local files (it normally does not for this page), run
+`npx serve web` from the project folder and open the printed `http://localhost`
+address. No other dependency is required.
+
+
 ## Review 2: applications, CPU priority and file-I/O priority
 
 The primary new requirement was to show **multiple files and small applications
@@ -199,7 +241,18 @@ detection finds an already deadlocked state and recovers from it.
 
 ## Build and run
 
-### GCC / MinGW
+The browser frontend needs no build. The C++ console program is optional and is
+kept for reference, course submission and regression tests.
+
+### Browser frontend (primary)
+
+Open `web/index.html`. Optional static server:
+
+```sh
+npx serve web
+```
+
+### C++ console (optional reference)
 
 ```sh
 g++ -std=c++17 -Wall -Wextra -Wpedantic -Iinclude src/main.cpp -o mini_kernel
@@ -295,40 +348,69 @@ Every scenario rebuilds its state from scratch and can be repeated.
   26 dispatches.
 - I/O comparison: service orders `1,2,3,4,5,6,7` (FCFS) and `1,6,7,2,3,4,5`
   (priority); editor write wait 16 → 2 ticks.
-- Browser core: 200 assertions in `tests/web/kernel_core_test.js`.
+- Browser core: 234 assertions in `tests/web/kernel_core_test.js` (application
+  kernel, scheduling, I/O policies, file system, deadlock, synchronization, IPC,
+  TLB/working set, termination, queue depth).
 
-## Browser visualizer
+## Browser frontend (primary demonstration)
 
-Open `web/index.html` in a modern browser (or serve the folder over HTTP). It is
-one self-contained file: no package installation, no server-side code and no
-host file access.
+Open `web/index.html` in a modern browser. It is one self-contained file: no
+package installation, no server-side code, no host file access and no dependency
+on the C++ executable. The page executes its own JavaScript simulation models
+and renders the results directly.
 
-Tabs:
+Tabs and controls:
 
 - **Kernel dashboard** — process counts by state, RUNNING/READY/WAITING/
-  TERMINATED queues, RAM map, pending file requests, CPU and disk lanes, recent
-  explained scheduling decisions, process metrics. Controls: Run, Step, Play/
-  Pause, Reset.
-- **Applications** — editable launch table (name, kind, CPU priority, arrival,
-  burst, RAM), CPU and I/O policy selection, Run/Step/Play/Reset, per-application
-  state/progress/I-O wait/result, transition log, written files, and the four
-  guided scenario buttons.
+  TERMINATED queues, RAM map, pending and currently-served file requests, CPU and
+  disk lanes, recent explained scheduling decisions, process metrics. Controls:
+  Run to completion, Step, Play/Pause, Reset. The serving request is shown with
+  its remaining ticks; the pending table shows priority and path.
+- **Applications** — editable launch table (name, application, CPU priority,
+  arrival, burst, RAM), CPU policy (preemptive priority, non-preemptive priority,
+  FCFS) and I/O policy (priority/FCFS), Run/Step/Play/Reset, per-application
+  state, progress, I/O wait, real result, **Terminate** action, transition log,
+  written files and four guided scenario buttons. Terminating a process at the
+  current tick releases its RAM, Banker resources and any pending file request;
+  Reset restores it.
 - **I/O queue** — identical request set under FCFS and priority; service orders,
-  per-request order/wait, selection reasons and the requests produced by the
-  current application run.
-- **CPU scheduling, Memory paging, Deadlock avoidance, Synchronization, Disk
-  scheduling, Memory manager, Processes & threads, Deadlock & IPC** — the
-  existing interactive modules, unchanged in intent.
+  per-request application, operation, path, priority, submission time, queue
+  depth, status, service order and wait; selection reasons; the requests produced
+  by the running applications.
+- **CPU scheduling** — FCFS, SJF, SRTF, Priority, Round Robin, MLQ and MLFQ;
+  editable processes, Gantt, scrubber, Play/Pause, **Step**, state-transition log
+  with a reason for every dispatch and preemption, RUNNING/READY/WAITING/
+  TERMINATED queues at the current tick, per-process CT/TAT/WT/RT and dispatches,
+  and the five-policy comparison.
+- **Memory paging** — FIFO/LRU/Optimal, per-reference frames, faults, eviction,
+  comparison bars (executed in JS).
+- **Deadlock avoidance** — Banker's safety and interactive resource requests with
+  deny/wait/grant decisions and a safety trace.
+- **Synchronization** — semaphore/mutex wait–signal, producer–consumer,
+  dining philosophers (deadlock and ordering fix), Peterson and Bakery; each run
+  builds a live trace from the simulated primitives.
+- **Disk scheduling** — FCFS, SSTF, SCAN, C-SCAN with service order, head path,
+  movement, average seek and comparison.
+- **Memory manager** — First/Best/Worst Fit on an identical request sequence,
+  interactive allocate/release with the three policies, segmented address
+  translation, LRU TLB, and a working-set/thrashing trace.
+- **Processes & threads** — process lifecycle (create, dispatch, I/O wait, wake,
+  terminate) and user/kernel thread mapping, generated by a small state machine.
+- **Deadlock & IPC** — multi-instance deadlock detection (allocation/request/
+  available table), wait-for cycle, victim selection (lowest PID or fewest
+  resources held), recovery with before/after state; bounded message queue and
+  permission-checked shared memory.
 - **File system** — directory navigation, create directory, write, read
   (sequential/direct), delete, rename, copy, move, metadata, block map, journal.
-  Running the application kernel refreshes this file system, so the files the
+  Running the application kernel refreshes this file system, so files the
   applications wrote appear under `/apps`.
 - **Integrated run** — the same eight-application kernel rendered as one
   CPU/disk timeline with RAM, files and blocks.
 
 The browser models are deterministic JavaScript demonstrations. They do **not**
 call the C++ executable; the two implementations are kept consistent by sharing
-the same rules, sample data and expected checkpoints.
+the same rules, sample data and expected checkpoints (for example, both produce
+83 ticks and a 37.88 average turnaround for the default eight-application run).
 
 ### Testable browser core
 
@@ -336,8 +418,12 @@ The pure simulation core is the marked block `KERNEL-CORE:BEGIN … END` in
 `web/index.html` and is loaded by both the page and the Node test:
 
 ```sh
-node tests/web/kernel_core_test.js   # 200 checks
+node tests/web/kernel_core_test.js   # 234 checks
 ```
+
+The Node test covers the application kernel, scheduling, I/O policies, file
+system, deadlock detection/recovery, synchronization primitives, IPC, TLB and
+working set, user termination, and queue-depth accounting.
 
 ## Source layout
 
@@ -361,21 +447,44 @@ web/index.html              Single-file browser visualizer
 docs/                       Course-topic mapping and syllabus PDF
 ```
 
+## Frontend verification
+
+The browser was tested directly (Chrome, served locally) and its simulation core
+is covered by the Node regression test.
+
+| Check | Result |
+| --- | --- |
+| Page and all 13 tabs load; console clean | Pass — no errors or warnings |
+| Launch 8 applications, change priority/burst/RAM, run to completion | Pass — order and metrics change with the inputs |
+| Preemptive priority and non-preemptive/FCFS CPU policies | Pass — preemption only in preemptive mode |
+| Terminate a live application | Pass — state TERMINATED, RAM/resources/pending request released, other applications continue |
+| Step / Play / Pause / Reset | Pass — tick cursor and views update; Reset restores terminated apps |
+| File system write/read/append/copy/rename/move/delete/mkdir/metadata | Pass — block map and free count update |
+| First/Best/Worst Fit comparison and interactive allocator | Pass — placement, largest hole and fragmentation differ |
+| Banker request grant/wait/deny | Pass |
+| Deadlock detect → recover → detect | Pass — deadlocked set, victim, resources, no residual deadlock |
+| Semaphores, producer–consumer, dining, Peterson/Bakery | Pass — traces generated by the JS primitives |
+| IPC queue back-pressure and shared-memory permissions | Pass |
+| FIFO/LRU/Optimal paging, FCFS/SSTF/SCAN/C-SCAN | Pass — expected fault and movement counts |
+| TLB hit/miss/page-fault and working-set pressure | Pass |
+| FCFS vs priority I/O on the same request set | Pass — editor write wait 16 → 2 ticks |
+| Process WAITING → READY resumption | Pass — visible in the transition log and dashboard |
+
 ## Known limitations
 
 - Educational model: no real processes, threads, devices, interrupts or host I/O.
 - One CPU and one simulated file device; scheduling is deterministic.
-- The C++ application kernel uses preemptive priority only; the classic menu
-  provides the other CPU policies. The web application launcher also offers
-  non-preemptive priority and FCFS.
+- The frontend implements every algorithm in JavaScript; the C++ console is an
+  independent reference implementation and is not called by the page.
 - Priority inheritance is not implemented (priority inversion can be observed).
 - The Banker demo uses a fixed nine-row resource matrix; admission retries when
   RAM or resources are unavailable.
 - No persistence: the file system and all logs reset when the program/page is
   restarted.
 - The `mini_kernel` file committed at the repository root is an older Linux build.
-  Rebuild it from source with the commands above before a demo.
+  It is not needed for the frontend demonstration.
 - CMake was not available in the development environment, so CMake and MSVC
   builds were not executed here; the direct GCC builds and both test suites were.
 - Page replacement, segmentation and disk scheduling are standalone
   demonstrations, not applied to the application workloads.
+

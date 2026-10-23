@@ -166,4 +166,79 @@ ok(!K.fsWrite(small, '/apps/huge.txt', new Array(500).join('x'), 'contiguous', '
    'a request larger than the free space is rejected');
 ok(K.fsUsed(small) === used, 'a rejected write does not consume blocks');
 
+// --- deadlock detection and recovery -----------------------------------------
+const dl = K.deadlockSample();
+const detection = K.deadlockDetect(dl);
+ok(JSON.stringify(detection.deadlocked) === '[0,1]', 'the sample state is deadlocked');
+ok(detection.deadlocked.indexOf(0) >= 0 && detection.deadlocked.indexOf(1) >= 0,
+   'both wait-for participants are reported');
+const recovered = K.deadlockRecover(dl, 'first');
+ok(recovered.victim === 0, 'first policy picks the lowest deadlocked PID');
+ok(recovered.after.deadlocked.length === 0, 'recovery breaks the deadlock');
+ok(recovered.state.available[0] === 1, 'the victim resources are returned');
+const least = K.deadlockRecover({
+  available: [0, 0], allocation: [[2, 0], [0, 1]], request: [[0, 1], [1, 0]]
+}, 'least');
+ok(least.victim === 1, 'least-allocated policy picks the process holding fewer resources');
+ok(least.after.deadlocked.length === 0, 'the remaining process can finish after recovery');
+
+// --- synchronization ---------------------------------------------------------
+const pcSteps = K.producerConsumerTrace();
+ok(pcSteps.length > 10, 'producer-consumer executes a full trace');
+ok(pcSteps.some(line => line.indexOf('BLOCKED: buffer empty') >= 0), 'consumer blocks on an empty buffer');
+ok(pcSteps.some(line => line.indexOf('wakes C1') >= 0), 'producing wakes the blocked consumer');
+ok(pcSteps.some(line => line.indexOf('BLOCKED: buffer full') >= 0), 'producer blocks on a full buffer');
+ok(pcSteps[pcSteps.length - 1].indexOf('invariant') >= 0, 'bounded-buffer invariant checked');
+
+const dining = K.diningTrace();
+ok(dining.some(line => line.indexOf('DEADLOCK') >= 0), 'left-first dining deadlocks');
+ok(dining.some(line => line.indexOf('All five philosophers ate') >= 0), 'ordering prevents the deadlock');
+
+const peterson = K.petersonTrace();
+ok(peterson.some(line => line.indexOf('T1 now enters') >= 0), 'Peterson hands the critical section to T1');
+ok(peterson.some(line => line.indexOf('T1 -> T2 -> T0 -> T3') >= 0), 'Bakery tie-breaks equal tickets by id');
+
+const semaphore = K.semaphoreTrace();
+ok(semaphore.some(line => line.indexOf('BLOCKED') >= 0), 'semaphore wait blocks the second process');
+ok(semaphore.some(line => line.indexOf('hands the permit') >= 0), 'signal hands the permit to the waiter');
+
+// --- IPC ---------------------------------------------------------------------
+const ipc = K.ipcTrace();
+ok(ipc.some(line => line.indexOf('BLOCKED, message queue is full') >= 0), 'bounded message queue applies back-pressure');
+ok(ipc.some(line => line.indexOf('write denied') >= 0), 'shared-memory write is permission checked');
+ok(ipc.some(line => line.indexOf('read denied') >= 0), 'shared-memory read is permission checked');
+
+// --- TLB and working set -----------------------------------------------------
+const tlb = K.tlbTrace();
+ok(tlb.some(line => line.indexOf('TLB HIT') >= 0), 'a repeated page hits the TLB');
+ok(tlb.some(line => line.indexOf('PAGE FAULT') >= 0), 'a non-resident page faults');
+const ws = K.workingSet([1, 2, 1, 3, 4, 3, 4, 5, 6, 5, 6], 4, 3);
+ok(ws.thrashing, 'a working set larger than the frames signals thrashing');
+ok(ws.rows[4].pages.length === 4, 'the window contains four distinct pages');
+
+// --- lifecycle and thread models ---------------------------------------------
+ok(K.lifecycleTrace().some(line => line.indexOf('WAITING') >= 0), 'lifecycle trace enters WAITING on I/O');
+ok(K.threadModelTrace().some(line => line.indexOf('BLOCKED') >= 0), 'thread model trace shows blocking');
+
+// --- termination -------------------------------------------------------------
+const killed = K.runKernel([
+  { pid: 1, kind: 'indexer', priority: 1, arrival: 0, memory: 8, burst: 7 },
+  { pid: 2, kind: 'counter', priority: 3, arrival: 0, memory: 8, burst: 5 }
+], { cpu: 'priority', io: 'priority', kills: [{ pid: 1, at: 2 }] });
+const victim = killed.runtimes.filter(rt => rt.pid === 1)[0];
+ok(victim.killed === true && victim.done, 'the terminated application stops');
+ok(victim.result.indexOf('terminated by the user') >= 0, 'the result records the termination');
+ok(victim.finish === 2, 'termination happens at the requested tick');
+ok(killed.runtimes[1].done, 'the other application still completes');
+ok(killed.requests.some(request => request.status === 'FAILED' &&
+   request.note.indexOf('cancelled') >= 0), 'the victim outstanding request is cancelled');
+const lastKillSnapshot = killed.snapshots[killed.snapshots.length - 1];
+ok(lastKillSnapshot.memory.length === 1 && lastKillSnapshot.memory[0].pid === 0,
+   'the terminated application memory is released');
+
+// --- queue depth -------------------------------------------------------------
+const depthRun = K.simulateRequests(K.demoRequests(), 'priority');
+ok(depthRun.requests.some(request => request.depth >= 3),
+   'request queue depth is recorded at submission');
+
 console.log('All ' + checks + ' browser kernel-core checks passed.');
