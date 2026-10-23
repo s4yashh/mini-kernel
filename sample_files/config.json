@@ -1,0 +1,4 @@
+{
+  "scheduler": "priority",
+  "ioPolicy": "priority"
+}

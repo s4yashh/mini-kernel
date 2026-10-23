@@ -2,7 +2,7 @@
 
 **Course:** BCSE303L Operating Systems (syllabus version 1.0)
 
-**Status:** Complete implementation of the defined educational simulator scope, extended for Review 2 with eight integrated applications, visible preemptive priority scheduling, and an independent file/I-O request queue. The simulator models concepts; it is not a real operating system.
+**Status:** Complete implementation of the defined educational simulator scope, extended for Review 2 with eight integrated applications, visible preemptive priority scheduling, an independent file-I/O request queue, and a browser-first frontend that loads the real application definitions and sample files committed in the repository. A browser self-test suite (18 tests) and two Node runners verify the frontend; the C++ regression suite remains intact. The simulator models concepts; it is not a real operating system.
 
 | Course module | Syllabus concepts represented | Project implementation |
 | --- | --- | --- |

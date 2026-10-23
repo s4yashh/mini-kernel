@@ -3,16 +3,17 @@
 A C++17, menu-driven educational simulator that makes common operating-system
 decisions visible through deterministic logs, tables and text charts. It does
 **not** modify the host OS, control real hardware, or write to the host file
-system. A self-contained browser visualizer demonstrates the same concepts.
+system. A browser frontend is the primary demonstration and loads its real sample
+files and application definitions from this repository.
 
 Course: **BCSE303L Operating Systems**. Team: Suyash Singh, Pratik Tekriwal,
 Aditya Sharma.
 
-## Frontend-first demonstration (no terminal required)
+## Frontend-first demonstration
 
-**Everything needed for the review runs in the browser.** Open
-`web/index.html` in a modern browser and use the tabs; the C++ program is kept
-for reference and regression tests but is **not required** for the demo and is
+**Everything needed for the review runs in the browser**, and the browser reads
+the actual committed files under `apps/` and `sample_files/`. The C++ program is
+kept for reference and regression tests but is **not required** for the demo and is
 never invoked by the page.
 
 | Feature | Where in the browser | Runs entirely in the browser? |
@@ -21,7 +22,8 @@ never invoked by the page.
 | Process states, queues, I/O wait and wake-up | Kernel dashboard, Applications | Yes |
 | CPU scheduling (FCFS, SJF, SRTF, Priority, RR, MLQ, MLFQ) + decision reasons | CPU scheduling, Dashboard | Yes |
 | Gantt charts, metrics, execution logs | CPU scheduling, Dashboard, Integrated run | Yes |
-| Virtual file system (create/read/write/append/rename/copy/move/delete/metadata/blocks) | File system | Yes |
+| Repository sample files (read-only) + real content preview | File system | Yes — fetched from the repo |
+| Virtual file system (create/read/write/append/rename/copy/move/delete/metadata/blocks/content search) | File system | Yes |
 | File/I/O request queue (FCFS vs priority, same requests) | I/O queue, Dashboard | Yes |
 | First / Best / Worst Fit + interactive allocator | Memory manager | Yes |
 | Banker's algorithm | Deadlock avoidance | Yes |
@@ -31,24 +33,104 @@ never invoked by the page.
 | FIFO / LRU / Optimal paging | Memory paging | Yes |
 | FCFS / SSTF / SCAN / C-SCAN disk scheduling | Disk scheduling | Yes |
 | TLB and working-set / thrashing trace | Memory manager | Yes |
+| Automated verification of the above | Self-tests | Yes — 18 tests, also runnable from Node |
 
-No backend, database, build step or console input is involved. A static server is
-optional; the page also works when opened directly from disk.
+There is no backend, database or build step. A **local static server is required**
+because browsers block `fetch()` from `file://` pages, and the sample files and app
+definitions are loaded with `fetch()` rather than duplicated in the HTML.
 
 ### Quick start
 
-1. Open `web/index.html` in Chrome, Edge or Firefox (double-click is enough).
-2. **Kernel dashboard → Run to completion**; then **Step** or **Play** to watch
+Windows (recommended):
+
+```bat
+run_frontend.bat
+```
+
+This starts a dependency-free Node static server, opens
+`http://127.0.0.1:8088/web/index.html`, and prints the URL. Manual equivalent:
+
+```sh
+node tools/serve.js
+```
+
+Then use the tabs:
+
+1. **Kernel dashboard → Run to completion**; then **Step** or **Play** to watch
    queues, RAM, file requests and decisions.
-3. **Applications** → edit a priority/burst, press **Run to completion**, and use
+2. **Applications** → edit a priority/burst, press **Run to completion**, and use
    **Terminate** on a live process.
-4. **I/O queue** → **Run comparison** for the FCFS-vs-priority proof.
-5. **File system** → write/append/copy/rename/delete and watch the block map.
+3. **I/O queue** → **Run comparison** for the FCFS-vs-priority proof.
+4. **File system** → preview the committed `sample_files/` files, copy them into
+   the VFS, edit/rename/delete virtual copies, search contents, inspect blocks.
+5. **Self-tests → Run self-tests** → 18 browser tests against the real fixtures.
 
-If your browser restricts local files (it normally does not for this page), run
-`npx serve web` from the project folder and open the printed `http://localhost`
-address. No other dependency is required.
+If Node is not installed, any static server rooted at the repository (not at
+`web/`) works, for example `npx serve .` then open `/web/index.html`. The page must
+be served from the repository root so `../sample_files` and `../apps` resolve.
 
+
+## Repository files, manifest and virtual copies
+
+The project contains the actual data the teacher can inspect on GitHub:
+
+```text
+apps/
+  app-manifest.json          catalogue of applications + sample-file entries
+  calculator/                app.json (metadata/workload/files) + README.md
+  text-editor/
+  counter/
+  file-search/
+  file-analyzer/
+  file-copy/
+  background-indexer/
+  system-monitor/
+sample_files/
+  notes.txt  report.txt  numbers.csv  source.c  config.json  system.log  style.txt
+  README.md
+web/
+  index.html                 frontend (kernel core inline between markers)
+  js/samples.js              manifest + sample loader/validator (fetch)
+  js/selftest.js             the 18-test browser suite
+tools/serve.js               dependency-free static server
+run_frontend.bat             launcher
+```
+
+### How loading works
+
+1. `web/index.html` calls `SampleLoader.load('../')`.
+2. The loader fetches `apps/app-manifest.json` from the repository root.
+3. It fetches every `definition` and every `source` path listed there, then
+   validates the JSON fields, unique paths/kinds, allowed allocations and
+   non-empty contents.
+4. On success, the repository samples are copied into the in-memory VFS at their
+   declared `/docs/...` paths. Each entry is tagged `repository sample` with its
+   `origin` path.
+5. On failure (missing path, empty file, invalid JSON, `file://`), the page shows
+   the exact failing path and disables the simulation; it never invents contents.
+
+**The originals are never modified.** The VFS is a copy: editing `/docs/notes.txt`
+marks it `repository sample (edited)` and keeps its `origin`; deleting or copying
+affects only memory. The File system tab shows the committed files in a separate
+read-only table with their real contents and a "Copy into VFS" action. **Reset** on
+the Applications tab (or "Reset demo & rerun" on Self-tests) restores the committed
+copies.
+
+The application kernel and the explorer share one VFS: edits become inputs to the
+next run (edit an `ERROR` line in `system.log` and File Search reports a different
+count), and app-written files carry the source `virtual`.
+
+### Sample file purposes
+
+| File | VFS path | Used by | Expected |
+| --- | --- | --- | --- |
+| `notes.txt` | `/docs/notes.txt` | Text Editor | edited copy gains `[edited by text-editor]` |
+| `report.txt` | `/docs/report.txt` | File Copy Utility | byte-identical copy |
+| `numbers.csv` | `/docs/numbers.csv` | File Analyzer | `lines=6 words=6 characters=34` |
+| `source.c` | `/docs/source.c` | Background Indexer | read and indexed |
+| `config.json` | `/docs/config.json` | Background Indexer | read and indexed |
+| `system.log` | `/docs/system.log` | File Search | 2 `ERROR` lines |
+| `style.txt` | `/docs/style.txt` | Background Indexer | read and indexed |
 
 ## Review 2: applications, CPU priority and file-I/O priority
 
@@ -246,11 +328,20 @@ kept for reference, course submission and regression tests.
 
 ### Browser frontend (primary)
 
-Open `web/index.html`. Optional static server:
+```bat
+run_frontend.bat
+```
+
+or manually:
 
 ```sh
-npx serve web
+node tools/serve.js
+# open http://127.0.0.1:8088/web/index.html
 ```
+
+The server must be rooted at the repository (not `web/`) so the page can fetch
+`sample_files/` and `apps/`. Opening `web/index.html` via `file://` cannot load
+those files; the page then shows an error instead of inventing data.
 
 ### C++ console (optional reference)
 
@@ -354,10 +445,11 @@ Every scenario rebuilds its state from scratch and can be repeated.
 
 ## Browser frontend (primary demonstration)
 
-Open `web/index.html` in a modern browser. It is one self-contained file: no
-package installation, no server-side code, no host file access and no dependency
-on the C++ executable. The page executes its own JavaScript simulation models
-and renders the results directly.
+Serve the repository root (`run_frontend.bat` or `node tools/serve.js`) and open
+`http://127.0.0.1:8088/web/index.html`. The page fetches the committed sample
+files and app definitions, validates them, and reports exact errors instead of
+falling back to invented content. It executes its own JavaScript simulation models
+and renders the results directly; the C++ executable is not involved.
 
 Tabs and controls:
 
@@ -366,13 +458,14 @@ Tabs and controls:
   disk lanes, recent explained scheduling decisions, process metrics. Controls:
   Run to completion, Step, Play/Pause, Reset. The serving request is shown with
   its remaining ticks; the pending table shows priority and path.
-- **Applications** — editable launch table (name, application, CPU priority,
-  arrival, burst, RAM), CPU policy (preemptive priority, non-preemptive priority,
-  FCFS) and I/O policy (priority/FCFS), Run/Step/Play/Reset, per-application
-  state, progress, I/O wait, real result, **Terminate** action, transition log,
-  written files and four guided scenario buttons. Terminating a process at the
-  current tick releases its RAM, Banker resources and any pending file request;
-  Reset restores it.
+- **Applications** — the launch table is populated from `apps/app-manifest.json`
+  (name, workload description, CPU priority, arrival, burst, RAM, output file).
+  CPU policy (preemptive priority, non-preemptive priority, FCFS) and I/O policy
+  (priority/FCFS), Run/Step/Play/Reset, per-application state, progress, I/O wait,
+  real result, **Terminate** action, transition log, written files and four guided
+  scenario buttons. Terminating a process at the current tick releases its RAM,
+  Banker resources and any pending file request; **Reset** re-copies the committed
+  samples and replays from t=0.
 - **I/O queue** — identical request set under FCFS and priority; service orders,
   per-request application, operation, path, priority, submission time, queue
   depth, status, service order and wait; selection reasons; the requests produced
@@ -392,42 +485,77 @@ Tabs and controls:
 - **Disk scheduling** — FCFS, SSTF, SCAN, C-SCAN with service order, head path,
   movement, average seek and comparison.
 - **Memory manager** — First/Best/Worst Fit on an identical request sequence,
-  interactive allocate/release with the three policies, segmented address
-  translation, LRU TLB, and a working-set/thrashing trace.
+  interactive allocate/release with the three policies (the same JS functions the
+  self-tests exercise), segmented address translation, LRU TLB, and a
+  working-set/thrashing trace.
 - **Processes & threads** — process lifecycle (create, dispatch, I/O wait, wake,
   terminate) and user/kernel thread mapping, generated by a small state machine.
 - **Deadlock & IPC** — multi-instance deadlock detection (allocation/request/
   available table), wait-for cycle, victim selection (lowest PID or fewest
   resources held), recovery with before/after state; bounded message queue and
   permission-checked shared memory.
-- **File system** — directory navigation, create directory, write, read
-  (sequential/direct), delete, rename, copy, move, metadata, block map, journal.
-  Running the application kernel refreshes this file system, so files the
-  applications wrote appear under `/apps`.
+- **File system** — a **read-only repository sample table** with the actual
+  committed paths, types, byte counts, virtual destinations and real content
+  previews; a **virtual file system** table with name, type, bytes, blocks,
+  allocation, owner, source (`repository sample`, `repository sample (edited)`,
+  `virtual`, `virtual copy`) and an **Open** action; an editor, content search,
+  create directory, write/read/delete/rename/copy/move/metadata, block map and
+  journal. Copying a repository sample creates an independent virtual file with
+  its own blocks; editing marks the virtual copy without touching the original.
 - **Integrated run** — the same eight-application kernel rendered as one
   CPU/disk timeline with RAM, files and blocks.
+- **Self-tests** — 18 automated checks with pass/fail counts, failed test names,
+  expected/actual values, and a reset-and-rerun control.
 
 The browser models are deterministic JavaScript demonstrations. They do **not**
 call the C++ executable; the two implementations are kept consistent by sharing
 the same rules, sample data and expected checkpoints (for example, both produce
 83 ticks and a 37.88 average turnaround for the default eight-application run).
 
+### Verification
+
+Two layers run against the real code:
+
+1. **In the browser** — the **Self-tests** tab runs the actual core and fixtures
+   (no DOM checks). It shows passed/failed counts and expected/actual on failures.
+2. **From Node** —
+
+```sh
+node tests/web/kernel_core_test.js        # 234 core assertions
+node tests/web/frontend_selftest_node.js  # the 18 browser-suite tests
+```
+
+See `docs/frontend-testing.md` for the exact checks and the recorded results, and
+`docs/demo-guide.md` for the review script.
+
 ### Testable browser core
 
 The pure simulation core is the marked block `KERNEL-CORE:BEGIN … END` in
-`web/index.html` and is loaded by both the page and the Node test:
+`web/index.html`; the loader and browser suite are separate modules. All three are
+loaded by the page and by Node:
 
 ```sh
-node tests/web/kernel_core_test.js   # 234 checks
+node tests/web/kernel_core_test.js        # 234 core assertions
+node tests/web/frontend_selftest_node.js  # 18 browser-suite tests
 ```
 
-The Node test covers the application kernel, scheduling, I/O policies, file
+The core test covers the application kernel, scheduling, I/O policies, file
 system, deadlock detection/recovery, synchronization primitives, IPC, TLB and
-working set, user termination, and queue-depth accounting.
+working set, user termination, and queue-depth accounting. The frontend suite
+additionally validates the manifest/app definitions and the committed sample
+contents end to end.
 
 ## Source layout
 
 ```text
+apps/                       application definitions (app.json + README per app)
+  app-manifest.json         catalogue used by the frontend loader
+sample_files/               committed inputs for the virtual file system
+web/index.html              browser frontend (kernel core inline between markers)
+web/js/samples.js           manifest/sample loader + validator (fetch)
+web/js/selftest.js          the 18-test browser verification suite
+tools/serve.js              dependency-free static server
+run_frontend.bat            Windows launcher
 include/pcb.h               PCB, states, validated transitions
 include/process_manager.h   Process table, dispatch, I/O wait/wake, terminate
 include/scheduler.h         Classic policies, MLQ/MLFQ, Gantt, metrics, explanations
@@ -442,32 +570,38 @@ include/threading.h         Thread mapping illustration
 include/disk.h              Disk-head scheduling
 src/main.cpp                Validated menu and demonstrations
 tests/simulator_tests.cpp   Dependency-free C++ regression tests
-tests/web/kernel_core_test.js  Node test for the browser core
-web/index.html              Single-file browser visualizer
-docs/                       Course-topic mapping and syllabus PDF
+tests/web/kernel_core_test.js       Node test for the browser core
+tests/web/frontend_selftest_node.js Node runner for the browser self-test suite
+docs/frontend-testing.md    verification instructions + recorded results
+docs/demo-guide.md          browser-first review script
+docs/Module_Topics_Used.md  course-topic mapping
 ```
 
 ## Frontend verification
 
 The browser was tested directly (Chrome, served locally) and its simulation core
-is covered by the Node regression test.
+is covered by both Node runners.
 
 | Check | Result |
 | --- | --- |
-| Page and all 13 tabs load; console clean | Pass — no errors or warnings |
+| Page and all 14 tabs load; console clean | Pass — no errors or warnings |
+| Manifest + 8 app definitions + 7 sample files load from the repo | Pass — exact paths and byte counts |
+| Repository preview shows committed contents; originals are never modified | Pass — virtual edits do not change `sample_files/` |
+| Copy/edit/rename/move/delete/create-directory in the VFS | Pass — blocks and source labels update |
 | Launch 8 applications, change priority/burst/RAM, run to completion | Pass — order and metrics change with the inputs |
+| Edited `system.log` changes File Search's result | Pass — 2 → 3 matches after adding an `ERROR` line |
 | Preemptive priority and non-preemptive/FCFS CPU policies | Pass — preemption only in preemptive mode |
 | Terminate a live application | Pass — state TERMINATED, RAM/resources/pending request released, other applications continue |
-| Step / Play / Pause / Reset | Pass — tick cursor and views update; Reset restores terminated apps |
-| File system write/read/append/copy/rename/move/delete/mkdir/metadata | Pass — block map and free count update |
-| First/Best/Worst Fit comparison and interactive allocator | Pass — placement, largest hole and fragmentation differ |
-| Banker request grant/wait/deny | Pass |
-| Deadlock detect → recover → detect | Pass — deadlocked set, victim, resources, no residual deadlock |
-| Semaphores, producer–consumer, dining, Peterson/Bakery | Pass — traces generated by the JS primitives |
-| IPC queue back-pressure and shared-memory permissions | Pass |
-| FIFO/LRU/Optimal paging, FCFS/SSTF/SCAN/C-SCAN | Pass — expected fault and movement counts |
-| TLB hit/miss/page-fault and working-set pressure | Pass |
+| Step / Play / Pause / Reset | Pass — Reset restores repository copies and clears terminations |
+| Self-tests tab | Pass — 18 passed, 0 failed (expected/actual shown on failures) |
+| File operations and virtual storage allocation | Pass |
 | FCFS vs priority I/O on the same request set | Pass — editor write wait 16 → 2 ticks |
+| FIFO/LRU/Optimal paging, FCFS/SSTF/SCAN/C-SCAN | Pass — expected fault and movement counts |
+| First/Best/Worst Fit comparison and interactive allocator | Pass — same JS functions as the self-tests |
+| Banker request grant/wait/deny | Pass |
+| Deadlock detect → recover → detect | Pass — no residual deadlock |
+| Semaphores, producer–consumer, dining, Peterson/Bakery, IPC | Pass — traces generated by the JS primitives |
+| TLB hit/miss/page-fault and working-set pressure | Pass |
 | Process WAITING → READY resumption | Pass — visible in the transition log and dashboard |
 
 ## Known limitations
@@ -476,11 +610,13 @@ is covered by the Node regression test.
 - One CPU and one simulated file device; scheduling is deterministic.
 - The frontend implements every algorithm in JavaScript; the C++ console is an
   independent reference implementation and is not called by the page.
+- The page requires a local HTTP server to fetch the repository sample files;
+  `file://` is rejected with an explicit error. Use `run_frontend.bat`.
+- Repository samples are inputs: the virtual copies are in memory and disappear
+  when the page is reloaded; Reset restores the committed contents.
 - Priority inheritance is not implemented (priority inversion can be observed).
 - The Banker demo uses a fixed nine-row resource matrix; admission retries when
   RAM or resources are unavailable.
-- No persistence: the file system and all logs reset when the program/page is
-  restarted.
 - The `mini_kernel` file committed at the repository root is an older Linux build.
   It is not needed for the frontend demonstration.
 - CMake was not available in the development environment, so CMake and MSVC

@@ -1,0 +1,9 @@
+# Keep the committed sample files, definitions and browser scripts LF-only so the
+# character/line statistics and browser/Nodes tests are identical on every clone.
+* text=auto
+sample_files/** text eol=lf
+apps/** text eol=lf
+web/** text eol=lf
+tests/** text eol=lf
+docs/** text eol=lf
+*.bat text eol=crlf

@@ -1,0 +1,30 @@
+{
+  "kind": "indexer",
+  "name": "Background Indexer",
+  "description": "Reads five source/data files at low priority and builds an index.",
+  "workload": [
+    "file call: READ /docs/source.c (I/O priority 3)",
+    "file call: READ /docs/config.json (I/O priority 3)",
+    "file call: READ /docs/numbers.csv (I/O priority 3)",
+    "file call: READ /docs/style.txt (I/O priority 3)",
+    "file call: READ /docs/report.txt (I/O priority 3)",
+    "2 CPU ticks: build the index",
+    "file call: WRITE /apps/index.txt (I/O priority 3)",
+    "1 CPU tick: finish"
+  ],
+  "defaultPriority": 3,
+  "defaultArrival": 3,
+  "memoryUnits": 8,
+  "resources": [0, 0, 1],
+  "inputFiles": [
+    "/docs/source.c",
+    "/docs/config.json",
+    "/docs/numbers.csv",
+    "/docs/style.txt",
+    "/docs/report.txt"
+  ],
+  "outputFiles": ["/apps/index.txt"],
+  "allocation": "indexed",
+  "operations": ["READ", "WRITE"],
+  "expectedOutput": "indexed 5 files into /apps/index.txt"
+}

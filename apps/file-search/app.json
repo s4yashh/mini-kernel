@@ -1,0 +1,21 @@
+{
+  "kind": "file-search",
+  "name": "File Search",
+  "description": "Searches system.log for ERROR and reports the matches it actually found.",
+  "workload": [
+    "file call: READ /docs/system.log (I/O priority 2)",
+    "2 CPU ticks: count matches",
+    "file call: WRITE /apps/search.txt (I/O priority 2)",
+    "1 CPU tick: finish"
+  ],
+  "defaultPriority": 2,
+  "defaultArrival": 2,
+  "memoryUnits": 7,
+  "resources": [1, 0, 0],
+  "inputFiles": ["/docs/system.log"],
+  "outputFiles": ["/apps/search.txt"],
+  "allocation": "indexed",
+  "operations": ["READ", "WRITE"],
+  "search": "ERROR",
+  "expectedOutput": "found 2 occurrence(s) of ERROR"
+}

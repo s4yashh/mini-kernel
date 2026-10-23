@@ -1,0 +1,19 @@
+{
+  "kind": "calculator",
+  "name": "Calculator",
+  "description": "Evaluates 14 + 28 and saves the result through the simulated file system.",
+  "workload": [
+    "1 CPU tick: compute 14 + 28",
+    "file call: WRITE /apps/calculator.txt (I/O priority 2)",
+    "1 CPU tick: finish"
+  ],
+  "defaultPriority": 1,
+  "defaultArrival": 0,
+  "memoryUnits": 6,
+  "resources": [1, 0, 0],
+  "inputFiles": [],
+  "outputFiles": ["/apps/calculator.txt"],
+  "allocation": "contiguous",
+  "operations": ["WRITE"],
+  "expectedOutput": "14 + 28 = 42"
+}

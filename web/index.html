@@ -159,7 +159,8 @@ td.hit { color: var(--good); }
   <header>
     <h1>Mini Kernel Simulator</h1>
     <p class="sub">An interactive, browser-based demonstration of the Mini Kernel Simulator: processes, CPU, memory, resources, synchronization, files and disk I/O. Each module explains what the kernel is doing.</p>
-    <p class="note" style="margin-top:8px">Deterministic educational model · runs locally in this page · does not access your computer’s files or control a real operating system.</p>
+    <p class="note" style="margin-top:8px">Deterministic educational model · runs locally in this page · reads its sample files from the repository over HTTP · does not control a real operating system.</p>
+    <div class="msg" id="boot" role="status">Loading repository sample files…</div>
   </header>
 
   <div class="tabs" role="tablist" aria-label="Kernel modules">
@@ -176,6 +177,7 @@ td.hit { color: var(--good); }
     <button class="tab" role="tab" id="tabbtn-deadlock" aria-selected="false" aria-controls="tab-deadlock">Deadlock &amp; IPC</button>
     <button class="tab" role="tab" id="tabbtn-fs" aria-selected="false" aria-controls="tab-fs">File system</button>
     <button class="tab" role="tab" id="tabbtn-integrated" aria-selected="false" aria-controls="tab-integrated">Integrated run</button>
+    <button class="tab" role="tab" id="tabbtn-selftest" aria-selected="false" aria-controls="tab-selftest">Self-tests</button>
   </div>
 
   <section class="panel" id="tab-dash" role="tabpanel" aria-labelledby="tabbtn-dash" hidden>
@@ -554,7 +556,31 @@ td.hit { color: var(--good); }
 
   <section class="panel" id="tab-fs" role="tabpanel" aria-labelledby="tabbtn-fs" hidden>
     <div class="card">
-      <h2>Simulated file-system operations</h2>
+      <h2>Repository sample files (read-only)</h2>
+      <p class="note">These are the actual committed files under <code>sample_files/</code>. They are loaded over HTTP and copied into the virtual file system at start-up; the originals are never modified.</p>
+      <div class="scroll"><table id="repo-table"></table></div>
+      <div class="grid2" style="margin-top:10px">
+        <div>
+          <label>Selected sample
+            <input class="wide" id="repo-selected" readonly value="(none)">
+          </label>
+          <label style="margin-top:8px">Copy into the virtual file system at
+            <input class="wide" id="repo-target" value="/apps/report-copy.txt">
+          </label>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary" id="repo-copy" type="button">Copy into VFS</button>
+            <button class="btn" id="repo-open" type="button">Open in editor</button>
+          </div>
+          <div class="msg" id="repo-message" role="status" style="display:none"></div>
+        </div>
+        <div>
+          <h2>Actual committed contents</h2>
+          <pre class="output-box" id="repo-preview" style="max-height:220px;overflow:auto">Select a sample file to preview its real contents.</pre>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Virtual file system</h2>
       <div class="row">
         <label>Current directory
           <input id="fs-cwd" value="/docs" aria-label="Current directory" style="width:9em">
@@ -579,8 +605,8 @@ td.hit { color: var(--good); }
         <label>Direct offset <input type="number" id="fs-offset" value="0" min="0"></label>
       </div>
       <div class="row" style="margin-top:10px">
-        <label>Contents
-          <input class="wide" id="fs-content" value="A small simulated file-system demo." aria-label="File contents">
+        <label style="flex:1 1 420px">Contents / editor (open a file, edit it, then Write)
+          <textarea class="wide" id="fs-content" rows="4" aria-label="File contents">Select a file and press Open, or type new contents.</textarea>
         </label>
       </div>
       <div class="row" style="margin-top:10px">
@@ -599,8 +625,15 @@ td.hit { color: var(--good); }
         </label>
         <button class="btn" id="fs-mkdir" type="button">Create directory</button>
       </div>
+      <div class="row" style="margin-top:10px">
+        <label style="flex:1 1 320px">Search virtual and repository contents
+          <input class="wide" id="fs-query" value="ERROR" aria-label="Search term">
+        </label>
+        <button class="btn" id="fs-search" type="button">Search contents</button>
+      </div>
+      <div class="log" id="fs-search-log" style="margin-top:8px"></div>
       <div class="output-box" id="fs-message" role="status" style="margin-top:10px">In-memory only. Nothing is written to your computer.</div>
-      <p class="note" style="margin-top:8px">Run the application kernel (Applications or Kernel dashboard tab) and this file system is refreshed with the files the applications wrote.</p>
+      <p class="note" style="margin-top:8px">The explorer and the application kernel share this virtual file system: app writes appear here, and your edits become the inputs for the next run. <strong>Reset</strong> on the Applications tab restores the repository copies.</p>
     </div>
     <div class="grid2">
       <div class="card"><h2>Directory entries</h2><div class="scroll"><table id="fs-table"></table></div></div>
@@ -624,7 +657,25 @@ td.hit { color: var(--good); }
       <div class="card"><h2>Combined kernel log</h2><div class="log" id="integrated-log"></div></div>
       <div class="card"><h2>RAM, files and disk blocks</h2><div class="log" id="integrated-ram"></div><div class="scroll"><table id="integrated-files"></table></div><div class="log" id="integrated-blocks" style="margin-top:10px"></div></div>
     </div>
+  </section>  <section class="panel" id="tab-selftest" role="tabpanel" aria-labelledby="tabbtn-selftest" hidden>
+    <div class="card">
+      <h2>Browser verification suite</h2>
+      <p class="note">These tests execute the real JavaScript simulation core against the committed repository files: application definitions, sample contents, scheduling, I/O policies, the virtual file system, memory allocation, deadlock and error handling. They do not check whether HTML elements exist.</p>
+      <div class="row">
+        <button class="btn primary" id="selftest-run" type="button">Run self-tests</button>
+        <button class="btn" id="selftest-reset" type="button">Reset demo &amp; rerun</button>
+        <span class="badge" id="selftest-summary">not run</span>
+      </div>
+      <div class="msg" id="selftest-status" role="status"></div>
+      <div class="stats" id="selftest-stats"></div>
+    </div>
+    <div class="card">
+      <h2>Results</h2>
+      <p class="note">Failures show the expected and actual values. The suite can be rerun after Reset.</p>
+      <div class="scroll"><table id="selftest-table"></table></div>
+    </div>
   </section>
+
 </div>
 
 <script>
@@ -704,10 +755,18 @@ var KernelCore = (function () {
     if (!chosen) return false;
     chosen.forEach(function (b) { trial[b] = id; });
     fs.owners = trial;
+    var source = 'virtual';
+    if (existing) {
+      if (existing.source === 'repository sample') source = 'repository sample (edited)';
+      else source = existing.source || 'virtual';
+    }
     fs.files[path] = {
       id: id, path: path, owner: existing ? existing.owner : owner, contents: contents,
       method: method, blocks: chosen.slice(), indexBlock: method === 'indexed' ? chosen[chosen.length - 1] : null,
-      writes: existing ? existing.writes + 1 : 1
+      writes: existing ? existing.writes + 1 : 1,
+      source: source,
+      origin: existing ? (existing.origin || '') : '',
+      dirty: existing ? true : false
     };
     if (!existing) fs.nextId++;
     fs.journal.push('BEGIN write ' + path);
@@ -750,8 +809,14 @@ var KernelCore = (function () {
   function fsCopy(fs, from, to, method) {
     from = normalise(from); to = normalise(to);
     if (!from || !to || from === to || !fs.files[from]) return false;
-    try { return fsWrite(fs, to, fsRead(fs, from), method, fs.files[from].owner); }
-    catch (error) { return false; }
+    try {
+      if (!fsWrite(fs, to, fsRead(fs, from), method, fs.files[from].owner)) return false;
+    } catch (error) { return false; }
+    var target = fs.files[to];
+    target.source = 'virtual copy';
+    target.origin = fs.files[from].origin || from;
+    target.copiedFrom = from;
+    return true;
   }
   function fsRename(fs, from, to) {
     from = normalise(from); to = normalise(to);
@@ -783,6 +848,46 @@ var KernelCore = (function () {
       if (!fs.files[item[0]]) fsWrite(fs, item[0], item[1], item[2], 'user');
     });
     return fs;
+  }
+
+  // Initialises a fresh virtual file system from repository samples:
+  // [{ vfsPath, source, contents, allocation }]. Throws if a sample cannot be
+  // stored, so a missing or oversized file is never silently ignored.
+  function fsFromSamples(samples, totalBlocks) {
+    var fs = newFs(totalBlocks || 128);
+    fsMkdirs(fs, '/docs'); fsMkdirs(fs, '/apps');
+    (samples || []).forEach(function (sample) {
+      var path = normalise(sample.vfsPath || sample.path);
+      if (!path) throw new Error('invalid sample path: ' + (sample.vfsPath || sample.path));
+      if (!fsWrite(fs, path, sample.contents, sample.allocation || 'contiguous', 'user')) {
+        throw new Error('could not initialise sample ' + path +
+                        ' (missing directory, duplicate path or insufficient blocks)');
+      }
+      var entry = fs.files[path];
+      entry.source = 'repository sample';
+      entry.origin = sample.source || sample.repoPath || '';
+      entry.dirty = false;
+    });
+    return fs;
+  }
+
+  // Deep copy of a virtual file system, so a kernel run never mutates the live
+  // explorer state until it completes (and can then replace it deliberately).
+  function cloneFs(fs) {
+    var copy = {
+      total: fs.total, blockSize: fs.blockSize, owners: fs.owners.slice(),
+      files: {}, dirs: {}, journal: fs.journal.slice(), nextId: fs.nextId
+    };
+    Object.keys(fs.files).forEach(function (path) {
+      var file = fs.files[path];
+      copy.files[path] = {
+        id: file.id, path: file.path, owner: file.owner, contents: file.contents,
+        method: file.method, blocks: file.blocks.slice(), indexBlock: file.indexBlock,
+        writes: file.writes, source: file.source, origin: file.origin, dirty: file.dirty
+      };
+    });
+    Object.keys(fs.dirs).forEach(function (dir) { copy.dirs[dir] = true; });
+    return copy;
   }
 
   // ---- application programs --------------------------------------------------
@@ -936,6 +1041,46 @@ var KernelCore = (function () {
     }
     return released;
   }
+  // Policy-aware contiguous allocation used by the comparison and the
+  // interactive allocator. policy: 'First Fit' | 'Best Fit' | 'Worst Fit'
+  // (or 'first' | 'best' | 'worst').
+  function memoryAllocate(regions, pid, size, policy) {
+    if (!(pid > 0) || !(size > 0)) return false;
+    var candidates = [];
+    regions.forEach(function (region, index) {
+      if (region.pid === 0 && region.size >= size) candidates.push(index);
+    });
+    if (!candidates.length) return false;
+    var index = candidates[0];
+    candidates.forEach(function (candidate) {
+      if (policy === 'Best Fit' || policy === 'best') {
+        if (regions[candidate].size < regions[index].size) index = candidate;
+      } else if (policy === 'Worst Fit' || policy === 'worst') {
+        if (regions[candidate].size > regions[index].size) index = candidate;
+      }
+    });
+    var hole = regions[index];
+    if (hole.size === size) hole.pid = pid;
+    else {
+      regions.splice(index, 1,
+        { start: hole.start, size: size, pid: pid },
+        { start: hole.start + size, size: hole.size - size, pid: 0 });
+    }
+    return true;
+  }
+  function memoryUsed(regions) {
+    return regions.filter(function (r) { return r.pid !== 0; })
+                  .reduce(function (sum, r) { return sum + r.size; }, 0);
+  }
+  function memoryFree(regions) {
+    return regions.filter(function (r) { return r.pid === 0; })
+                  .reduce(function (sum, r) { return sum + r.size; }, 0);
+  }
+  function memoryLargestHole(regions) {
+    return regions.reduce(function (best, r) {
+      return r.pid === 0 ? Math.max(best, r.size) : best;
+    }, 0);
+  }
 
   // ---- I/O request scheduling ----------------------------------------------
   function pickRequest(requests, policy, now) {
@@ -1028,7 +1173,20 @@ var KernelCore = (function () {
   // ---- the simulated kernel --------------------------------------------------
   function runKernel(specs, options) {
     options = options || {};
-    var fs = seedFs(newFs(options.totalBlocks || 128));
+    if (!specs || !specs.length) throw new Error('at least one application is required');
+    var seenPids = {};
+    specs.forEach(function (spec) {
+      if (!spec || APP_KINDS.indexOf(spec.kind) < 0)
+        throw new Error('unknown application kind: ' + (spec && spec.kind));
+      if (!(spec.pid > 0)) throw new Error('application PID must be positive');
+      if (seenPids[spec.pid]) throw new Error('duplicate application PID ' + spec.pid);
+      seenPids[spec.pid] = true;
+    });
+    var fs = options.fs
+      ? cloneFs(options.fs)
+      : (options.samples && options.samples.length
+          ? fsFromSamples(options.samples, options.totalBlocks || 128)
+          : seedFs(newFs(options.totalBlocks || 128)));
     var memory = newMemory(options.memory || 96);
     var available = [8, 6, 6];
     var cpuPolicy = options.cpu || 'priority';
@@ -1683,10 +1841,13 @@ var KernelCore = (function () {
 
   return {
     APP_KINDS: APP_KINDS, KIND_INFO: KIND_INFO,
-    newFs: newFs, seedFs: seedFs, fsWrite: fsWrite, fsRead: fsRead, fsDelete: fsDelete,
+    newFs: newFs, seedFs: seedFs, fsFromSamples: fsFromSamples, cloneFs: cloneFs,
+    fsWrite: fsWrite, fsRead: fsRead, fsDelete: fsDelete,
     fsCopy: fsCopy, fsRename: fsRename, fsAppend: fsAppend, fsMkdir: fsMkdir,
     fsMkdirs: fsMkdirs, fsUsed: fsUsed, fsFree: fsFree, normalise: normalise,
     blocksFor: blocksFor, parentOf: parentOf,
+    memoryAllocate: memoryAllocate, memoryRelease: memRelease,
+    memoryUsed: memoryUsed, memoryFree: memoryFree, memoryLargestHole: memoryLargestHole,
     stepsFor: stepsFor, makeApp: makeApp, catalog: catalog,
     pickRequest: pickRequest, simulateRequests: simulateRequests, demoRequests: demoRequests,
     requestStats: requestStats, serviceTicks: serviceTicks, runKernel: runKernel,
@@ -1701,6 +1862,8 @@ var KernelCore = (function () {
 if (typeof module !== 'undefined' && module.exports) module.exports = KernelCore;
 /* KERNEL-CORE:END */
 </script>
+<script src="js/samples.js"></script>
+<script src="js/selftest.js"></script>
 
 <script>
 function runQueueScheduler(input, algorithm) {
@@ -1937,7 +2100,7 @@ function bankRequest(s, pid, req) {
   const fmt = x => x.toFixed(2);
   const col = i => 'var(--p' + (i % COLORS) + ')';
 
-  const tabs = ['dash', 'apps', 'io', 'sched', 'page', 'bank', 'sync', 'disk', 'memory', 'process', 'deadlock', 'fs', 'integrated'];
+  const tabs = ['dash', 'apps', 'io', 'sched', 'page', 'bank', 'sync', 'disk', 'memory', 'process', 'deadlock', 'fs', 'integrated', 'selftest'];
   tabs.forEach(k => {
     $('tabbtn-' + k).addEventListener('click', () => {
       tabs.forEach(j => {
@@ -2275,43 +2438,14 @@ function bankRequest(s, pid, req) {
     $(id).addEventListener('change', renderDisk);
   });
 
-  function allocateRegion(regions, pid, size, policy) {
-    let candidates = [];
-    regions.forEach((region, i) => {
-      if (region.pid === 0 && region.size >= size) candidates.push(i);
-    });
-    if (!candidates.length) return false;
-    let index = candidates[0];
-    if (policy === 'Best Fit') candidates.forEach(i => { if (regions[i].size < regions[index].size) index = i; });
-    if (policy === 'Worst Fit') candidates.forEach(i => { if (regions[i].size > regions[index].size) index = i; });
-    const hole = regions[index];
-    if (hole.size === size) hole.pid = pid;
-    else {
-      regions.splice(index, 1, { start: hole.start, size, pid },
-        { start: hole.start + size, size: hole.size - size, pid: 0 });
-    }
-    return true;
-  }
-  function mergeMemory(regions) {
-    for (let i = 1; i < regions.length;) {
-      if (regions[i - 1].pid === 0 && regions[i].pid === 0) {
-        regions[i - 1].size += regions[i].size;
-        regions.splice(i, 1);
-      } else i++;
-    }
-  }
   function simulateMemory(policy, capacity) {
     const regions = [{ start: 0, size: capacity, pid: 0 }];
     const operations = [[1, 10], [2, 25], [3, 5], [4, 30], [5, 5], [6, 20], [7, 5]];
     const results = [];
-    operations.forEach(([pid, size]) => results.push({ pid: 'P' + pid, size, ok: allocateRegion(regions, pid, size, policy) }));
-    [2, 4, 6].forEach(pid => {
-      const region = regions.find(r => r.pid === pid);
-      if (region) region.pid = 0;
-      mergeMemory(regions);
-    });
-    results.push({ pid: 'P8', size: 18, ok: allocateRegion(regions, 8, 18, policy) });
-    results.push({ pid: 'P9', size: 12, ok: allocateRegion(regions, 9, 12, policy) });
+    operations.forEach(([pid, size]) => results.push({ pid: 'P' + pid, size, ok: KernelCore.memoryAllocate(regions, pid, size, policy) }));
+    [2, 4, 6].forEach(pid => { KernelCore.memoryRelease(regions, pid); });
+    results.push({ pid: 'P8', size: 18, ok: KernelCore.memoryAllocate(regions, 8, 18, policy) });
+    results.push({ pid: 'P9', size: 12, ok: KernelCore.memoryAllocate(regions, 9, 12, policy) });
     const free = regions.filter(r => r.pid === 0).reduce((sum, r) => sum + r.size, 0);
     const largest = regions.reduce((best, r) => r.pid === 0 ? Math.max(best, r.size) : best, 0);
     return { policy, regions, results, free, largest, fragmentation: free - largest, capacity };
@@ -2392,7 +2526,7 @@ function bankRequest(s, pid, req) {
     if (mem2Regions.some(region => region.pid === pid)) {
       mem2Log.push('P' + pid + ' already owns a partition; release it first.'); mem2Render(); return;
     }
-    if (allocateRegion(mem2Regions, pid, size, policy)) {
+    if (KernelCore.memoryAllocate(mem2Regions, pid, size, policy)) {
       mem2Log.push(policy + ': allocated P' + pid + ' (' + size + ' units).');
       mem2Render();
     } else {
@@ -2402,10 +2536,11 @@ function bankRequest(s, pid, req) {
   });
   $('mem2-release').addEventListener('click', () => {
     const pid = parseInt($('mem2-pid').value, 10);
-    const region = mem2Regions.find(r => r.pid === pid);
-    if (!region) { mem2Log.push('P' + pid + ' has no partition.'); mem2Render(); return; }
-    region.pid = 0;
-    mergeMemory(mem2Regions);
+    if (!KernelCore.memoryRelease(mem2Regions, pid)) {
+      mem2Log.push('P' + pid + ' has no partition.');
+      mem2Render();
+      return;
+    }
     mem2Log.push('Released P' + pid + '; adjacent free regions coalesced.');
     mem2Render();
   });
@@ -2528,9 +2663,12 @@ function bankRequest(s, pid, req) {
 
   $('ipc-run').addEventListener('click', () => showLog('ipc-log', KernelCore.ipcTrace()));
 
-  // The file-system tab uses the same simulated file system as the kernel core,
-  // so file contents, block accounting and app-created files stay consistent.
-  let fs = KernelCore.seedFs(KernelCore.newFs(64));
+  // The explorer and the application kernel share one virtual file system.
+  // It starts empty and is filled from the committed repository samples by the
+  // boot loader (never from embedded copies when the page is served normally).
+  let fs = KernelCore.newFs(128);
+  KernelCore.fsMkdirs(fs, '/docs');
+  KernelCore.fsMkdirs(fs, '/apps');
   function fsCwd() {
     const value = KernelCore.normalise($('fs-cwd').value.trim() || '/');
     if (!value || !fs.dirs[value]) return null;
@@ -2546,22 +2684,40 @@ function bankRequest(s, pid, req) {
   function renderFs() {
     const cwd = fsCwd() || '/';
     const table = $('fs-table'); table.innerHTML = '';
-    const header = el('tr'); ['Name', 'Type', 'Bytes', 'Blocks', 'Allocation', 'Owner'].forEach(x => header.appendChild(el('th', '', x))); table.appendChild(header);
+    const header = el('tr');
+    ['Name', 'Path', 'Type', 'Bytes', 'Blocks', 'Allocation', 'Owner', 'Source', 'Action']
+      .forEach(x => header.appendChild(el('th', '', x)));
+    table.appendChild(header);
     Object.keys(fs.dirs).filter(d => d !== '/' && KernelCore.parentOf(d) === cwd).sort().forEach(dir => {
       const row = el('tr');
-      [dir.split('/').pop() + '/', 'DIR', '-', '-', '-', '-'].forEach(x => row.appendChild(el('td', '', x)));
+      [dir.split('/').pop() + '/', dir, 'DIR', '-', '-', '-', '-', 'directory']
+        .forEach(x => row.appendChild(el('td', '', x)));
+      row.appendChild(el('td', '', ''));
       table.appendChild(row);
     });
     Object.values(fs.files).filter(f => KernelCore.parentOf(f.path) === cwd)
       .sort((a, b) => a.path.localeCompare(b.path)).forEach(file => {
       const row = el('tr');
-      [file.path.split('/').pop(), 'FILE', String(file.contents.length), file.blocks.length,
-       file.method, file.owner].forEach(x => row.appendChild(el('td', '', x)));
+      [file.path.split('/').pop(), file.path, SampleLoader.fileType(file.path),
+       String(file.contents.length), file.blocks.length, file.method, file.owner,
+       file.source || 'virtual']
+        .forEach(value => row.appendChild(el('td', '', value)));
+      const action = el('td');
+      const open = el('button', 'btn', 'Open');
+      open.type = 'button';
+      open.addEventListener('click', () => {
+        $('fs-path').value = cwd === '/' ? file.path.slice(1)
+                                         : file.path.slice(cwd.length + 1);
+        $('fs-content').value = file.contents;
+        fsMessage('Opened ' + file.path + ' in the editor. Press Write to save changes to the virtual copy.');
+      });
+      action.appendChild(open);
+      row.appendChild(action);
       table.appendChild(row);
     });
     if (table.children.length === 1) {
-      const row = el('tr'); const cell = el('td', '', 'Directory is empty.');
-      cell.colSpan = 6; row.appendChild(cell); table.appendChild(row);
+      const row = el('tr'); const cell = el('td', '', 'Directory is empty. (Repository samples load at start-up; restart the server if this stays empty.)');
+      cell.colSpan = 9; row.appendChild(cell); table.appendChild(row);
     }
     const owners = $('fs-blocks'); owners.innerHTML = '';
     for (let i = 0; i < fs.owners.length; i += 8) {
@@ -2637,7 +2793,7 @@ function bankRequest(s, pid, req) {
     if (fs.dirs[path]) {
       const entries = Object.keys(fs.files).filter(f => KernelCore.parentOf(f) === path).length +
                       Object.keys(fs.dirs).filter(d => d !== path && KernelCore.parentOf(d) === path).length;
-      fsMessage('Directory ' + path + ' • ' + entries + ' entr' + (entries === 1 ? 'y' : 'ies'));
+      fsMessage('Directory ' + path + ' — ' + entries + ' entr' + (entries === 1 ? 'y' : 'ies'));
       return;
     }
     const file = fs.files[path];
@@ -2645,7 +2801,9 @@ function bankRequest(s, pid, req) {
     fsMessage('File ' + file.path + '\n  Owner: ' + file.owner + '\n  Size: ' + file.contents.length +
       ' bytes\n  Allocation: ' + file.method + '\n  Blocks: ' + file.blocks.join(', ') +
       '\n  Index block: ' + (file.indexBlock === null ? 'none' : file.indexBlock) +
-      '\n  Writes: ' + file.writes);
+      '\n  Writes: ' + file.writes +
+      '\n  Source: ' + (file.source || 'virtual') +
+      '\n  Origin: ' + (file.origin || '-'));
   });
   $('fs-mkdir').addEventListener('click', () => {
     const cwd = fsCwd();
@@ -2666,11 +2824,23 @@ function bankRequest(s, pid, req) {
   // The application/dashboard module can refresh this same simulated file system,
   // so files written by the applications appear here after a kernel run.
   window.MiniKernelFs = {
-    replace: function (next) {
+    replace: function (next, options) {
       fs = next;
-      $('fs-cwd').value = '/apps';
+      options = options || {};
+      if (options.cwd && fs.dirs[options.cwd]) $('fs-cwd').value = options.cwd;
+      else if (!fs.dirs[KernelCore.normalise($('fs-cwd').value || '/')]) $('fs-cwd').value = '/docs';
       renderFs();
-      fsMessage('The application kernel refreshed this file system; /apps contains the files the applications wrote.');
+      if (options.message) fsMessage(options.message);
+    },
+    current: function () { return fs; },
+    render: function () { renderFs(); },
+    message: function (text) { fsMessage(text); },
+    openPath: function (path) {
+      const file = fs.files[path];
+      if (!file) return false;
+      $('fs-path').value = path;
+      $('fs-content').value = file.contents;
+      return true;
     }
   };
 
@@ -2702,12 +2872,25 @@ function bankRequest(s, pid, req) {
   const col = i => 'var(--p' + (i % COLORS) + ')';
   const palette = pid => col((pid - 1 + COLORS) % COLORS);
 
-  let rows = KernelCore.catalog().map(app => ({
-    kind: app.kind, name: app.name, priority: app.priority,
-    arrival: app.arrival, memory: app.memory, burst: app.burst
-  }));
-  const state = { run: null, tick: 0, timer: null, kills: [] };
+  let rows = [];
+  const state = {
+    run: null, tick: 0, timer: null, kills: [], ready: false,
+    samples: [], applications: [], repoFiles: [], manifest: null, fsApplied: false
+  };
   let ioRuns = null;
+
+  function repoSamples() {
+    return state.samples.map(sample => ({
+      vfsPath: sample.vfsPath, source: sample.source,
+      contents: sample.contents, allocation: sample.allocation
+    }));
+  }
+  function kernelOptions(extra) {
+    return Object.assign({
+      cpu: $('app-cpu').value, io: $('app-io').value, memory: 96,
+      fs: window.MiniKernelFs.current()
+    }, extra || {});
+  }
 
   function defaultBurst(kind) { return KernelCore.makeApp(kind, 1).burst; }
   function kindOptions(selected) {
@@ -2742,6 +2925,14 @@ function bankRequest(s, pid, req) {
     const head = el('tr');
     ['PID', 'Name', 'Application', 'Work performed', 'CPU priority', 'Arrival', 'CPU burst', 'RAM', 'Output file', ''].forEach(h => head.appendChild(el('th', '', h)));
     table.appendChild(head);
+    if (!rows.length) {
+      const tr = el('tr');
+      const cell = el('td', '', 'Loading application definitions from apps/app-manifest.json…');
+      cell.colSpan = 10;
+      tr.appendChild(cell);
+      table.appendChild(tr);
+      return;
+    }
     rows.forEach((row, index) => {
       const tr = el('tr');
       tr.appendChild(el('td', '', 'P' + (index + 1)));
@@ -2756,7 +2947,7 @@ function bankRequest(s, pid, req) {
         renderLaunch(); invalidate();
       });
       kindCell.appendChild(kind); tr.appendChild(kindCell);
-      tr.appendChild(el('td', '', KernelCore.KIND_INFO[row.kind].desc));
+      tr.appendChild(el('td', '', row.description || KernelCore.KIND_INFO[row.kind].desc));
       const priorityCell = el('td'); const priority = document.createElement('input');
       priority.type = 'number'; priority.min = 1; priority.max = 3; priority.value = row.priority;
       priority.setAttribute('aria-label', 'Priority of P' + (index + 1));
@@ -2789,7 +2980,7 @@ function bankRequest(s, pid, req) {
         if (!isNaN(v)) { row.memory = Math.max(1, v); invalidate(); }
       });
       memoryCell.appendChild(memory); tr.appendChild(memoryCell);
-      tr.appendChild(el('td', '', KernelCore.KIND_INFO[row.kind].out));
+      tr.appendChild(el('td', '', row.output || KernelCore.KIND_INFO[row.kind].out));
       const action = el('td'); const remove = el('button', 'btn', 'Remove'); remove.type = 'button';
       remove.disabled = rows.length <= 1;
       remove.addEventListener('click', () => { rows.splice(index, 1); renderLaunch(); invalidate(); });
@@ -2808,13 +2999,16 @@ function bankRequest(s, pid, req) {
   }
   function compute() {
     stopPlay();
+    if (!state.ready) {
+      appMessage('Repository samples are not loaded, so the kernel cannot run. Serve the project with run_frontend.bat or node tools/serve.js.', 'no');
+      return;
+    }
     state.kills = [];
     appMessage('');
-    state.run = KernelCore.runKernel(specsFromRows(), {
-      cpu: $('app-cpu').value, io: $('app-io').value, memory: 96
-    });
+    state.run = KernelCore.runKernel(specsFromRows(), kernelOptions());
     state.tick = state.run.snapshots.length - 1;   // show the completed run at once
-    if (window.MiniKernelFs) window.MiniKernelFs.replace(state.run.fs);
+    window.MiniKernelFs.replace(state.run.fs);
+    state.fsApplied = true;
     renderAll();
   }
   function ensureRun() { if (!state.run) compute(); return state.run; }
@@ -2823,39 +3017,55 @@ function bankRequest(s, pid, req) {
     if (!run) return null;
     return run.snapshots[Math.min(state.tick, run.snapshots.length - 1)];
   }
+  function applyRunFs() {
+    if (!state.run || state.fsApplied) return;
+    window.MiniKernelFs.replace(state.run.fs);
+    state.fsApplied = true;
+  }
   function play() {
     ensureRun();
     if (state.timer) { stopPlay(); return; }
-    if (state.tick >= state.run.snapshots.length - 1) state.tick = 0;
+    if (state.tick >= state.run.snapshots.length - 1) {
+      state.tick = 0;
+      state.fsApplied = false;
+    }
     $('dash-play').textContent = 'Pause'; $('app-play').textContent = 'Pause';
     state.timer = setInterval(() => {
       state.tick++;
-      if (state.tick >= state.run.snapshots.length - 1) { state.tick = state.run.snapshots.length - 1; stopPlay(); }
+      if (state.tick >= state.run.snapshots.length - 1) {
+        state.tick = state.run.snapshots.length - 1;
+        applyRunFs();
+        stopPlay();
+      }
       renderAll();
     }, 320);
   }
   function step() {
     const run = ensureRun();
-    if (state.tick >= run.snapshots.length - 1) state.tick = 0;
-    else state.tick++;
+    if (state.tick >= run.snapshots.length - 1) {
+      state.tick = 0;
+      state.fsApplied = false;
+    } else state.tick++;
+    if (state.tick >= run.snapshots.length - 1) applyRunFs();
     renderAll();
   }
   function reset() {
     stopPlay();
     state.kills = [];
-    if (state.run) {
-      state.run = KernelCore.runKernel(specsFromRows(), {
-        cpu: $('app-cpu').value, io: $('app-io').value, memory: 96
-      });
-      if (window.MiniKernelFs) window.MiniKernelFs.replace(state.run.fs);
-    }
+    if (!state.ready) { renderAll(); return; }
+    // A reset restores the committed repository copies and then replays the run
+    // from t=0, so edits, terminations and app-created files are discarded.
+    window.MiniKernelFs.replace(KernelCore.fsFromSamples(repoSamples(), 128), { cwd: '/docs' });
+    state.run = KernelCore.runKernel(specsFromRows(), kernelOptions());
     state.tick = 0;
+    state.fsApplied = false;
     appMessage('');
     renderAll();
   }
 
   function terminateApp(pid) {
     const run = ensureRun();
+    if (!run) return;
     const snap = snapshot();
     const target = snap.procs.filter(p => p.pid === pid)[0];
     if (!target) return;
@@ -2865,12 +3075,9 @@ function bankRequest(s, pid, req) {
     }
     const at = Math.max(1, snap.time);
     state.kills.push({ pid: pid, at: at });
-    state.run = KernelCore.runKernel(specsFromRows(), {
-      cpu: $('app-cpu').value, io: $('app-io').value, memory: 96,
-      kills: state.kills
-    });
+    state.run = KernelCore.runKernel(specsFromRows(), kernelOptions({ kills: state.kills }));
     state.tick = Math.min(at + 1, state.run.snapshots.length - 1);
-    if (window.MiniKernelFs) window.MiniKernelFs.replace(state.run.fs);
+    state.fsApplied = false;
     renderAll();
     appMessage('P' + pid + ' terminated at t=' + at +
       ': memory, Banker resources and any pending file request were released.', 'no');
@@ -3135,7 +3342,9 @@ function bankRequest(s, pid, req) {
   $('app-add').addEventListener('click', () => {
     const kind = 'calculator';
     rows.push({ kind, name: KernelCore.KIND_INFO[kind].label, priority: 3, arrival: 0,
-                memory: KernelCore.KIND_INFO[kind].mem, burst: defaultBurst(kind) });
+                memory: KernelCore.KIND_INFO[kind].mem, burst: defaultBurst(kind),
+                description: KernelCore.KIND_INFO[kind].desc,
+                output: KernelCore.KIND_INFO[kind].out });
     renderLaunch(); invalidate();
   });
   $('app-cpu').addEventListener('change', invalidate);
@@ -3148,7 +3357,9 @@ function bankRequest(s, pid, req) {
       const app = KernelCore.makeApp(item.kind, 1, {});
       return { kind: item.kind, name: KernelCore.KIND_INFO[item.kind].label,
                priority: item.priority, arrival: item.arrival,
-               memory: KernelCore.KIND_INFO[item.kind].mem, burst: app.burst };
+               memory: KernelCore.KIND_INFO[item.kind].mem, burst: app.burst,
+               description: KernelCore.KIND_INFO[item.kind].desc,
+               output: KernelCore.KIND_INFO[item.kind].out };
     });
     renderLaunch();
     compute();
@@ -3195,8 +3406,16 @@ function bankRequest(s, pid, req) {
   }
 
   function integratedRun() {
-    const run = KernelCore.runKernel(specsFromRows(), { cpu: 'priority', io: 'priority', memory: 96 });
-    if (window.MiniKernelFs) window.MiniKernelFs.replace(run.fs);
+    if (!state.ready) {
+      const log = $('integrated-log');
+      log.innerHTML = '';
+      log.appendChild(el('div', '', 'Repository samples are not loaded. Start the page with run_frontend.bat or node tools/serve.js.'));
+      return;
+    }
+    const run = KernelCore.runKernel(specsFromRows(),
+      kernelOptions({ cpu: 'priority', io: 'priority' }));
+    window.MiniKernelFs.replace(run.fs, { cwd: '/apps' });
+    state.fsApplied = true;
 
     const timeline = $('integrated-timeline'); timeline.innerHTML = '';
     [['CPU', t => run.gantt[t]], ['Disk', t => run.diskLane[t] || 0]].forEach(pair => {
@@ -3272,10 +3491,226 @@ function bankRequest(s, pid, req) {
     button.addEventListener('click', integratedRun);
   }
 
+  // ---- repository explorer ---------------------------------------------------
+  let selectedRepo = null;
+  function showRepoMessage(text, kind) {
+    const box = $('repo-message');
+    box.textContent = text;
+    box.className = 'msg' + (kind ? ' ' + kind : '');
+    box.style.display = text ? 'block' : 'none';
+  }
+  function renderRepoFiles() {
+    const table = $('repo-table'); table.innerHTML = '';
+    const head = el('tr');
+    ['Committed path', 'Type', 'Bytes', 'Virtual path', 'Allocation', '']
+      .forEach(h => head.appendChild(el('th', '', h)));
+    table.appendChild(head);
+    state.repoFiles.forEach(file => {
+      const row = el('tr');
+      [file.source, file.type, String(file.bytes), file.vfsPath, file.allocation]
+        .forEach(value => row.appendChild(el('td', '', value)));
+      const action = el('td');
+      const preview = el('button', 'btn', 'Preview');
+      preview.type = 'button';
+      preview.addEventListener('click', () => {
+        selectedRepo = file;
+        $('repo-selected').value = file.source;
+        $('repo-preview').textContent = file.contents;
+        $('repo-target').value = '/apps/' + file.source.split('/').pop();
+        showRepoMessage('Previewing the committed file ' + file.source + ' (' + file.bytes + ' bytes).', 'ok');
+      });
+      action.appendChild(preview);
+      row.appendChild(action);
+      table.appendChild(row);
+    });
+  }
+
+  $('repo-copy').addEventListener('click', () => {
+    if (!selectedRepo) { showRepoMessage('Select and preview a repository sample first.', 'wait'); return; }
+    const target = KernelCore.normalise($('repo-target').value.trim());
+    if (!target) { showRepoMessage('Enter a valid absolute destination path, for example /apps/report-copy.txt.', 'no'); return; }
+    const live = window.MiniKernelFs.current();
+    if (!KernelCore.fsWrite(live, target, selectedRepo.contents, selectedRepo.allocation, 'user')) {
+      showRepoMessage('Copy failed: invalid path, directory collision or insufficient blocks.', 'no');
+      return;
+    }
+    const entry = live.files[target];
+    entry.source = 'repository sample';
+    entry.origin = selectedRepo.source;
+    entry.dirty = false;
+    window.MiniKernelFs.render();
+    showRepoMessage('Copied ' + selectedRepo.source + ' to ' + target + ' (' +
+      entry.contents.length + ' bytes, ' + entry.blocks.length + ' blocks). The committed file is unchanged.', 'ok');
+  });
+  $('repo-open').addEventListener('click', () => {
+    if (!selectedRepo) { showRepoMessage('Select and preview a repository sample first.', 'wait'); return; }
+    const live = window.MiniKernelFs.current();
+    if (!live.files[selectedRepo.vfsPath]) {
+      if (!KernelCore.fsWrite(live, selectedRepo.vfsPath, selectedRepo.contents,
+                             selectedRepo.allocation, 'user')) {
+        showRepoMessage('Could not create the virtual copy of ' + selectedRepo.source + '.', 'no');
+        return;
+      }
+      const entry = live.files[selectedRepo.vfsPath];
+      entry.source = 'repository sample';
+      entry.origin = selectedRepo.source;
+      window.MiniKernelFs.render();
+    }
+    window.MiniKernelFs.openPath(selectedRepo.vfsPath);
+    showRepoMessage('Loaded ' + selectedRepo.vfsPath + ' into the editor. Edits affect only the virtual copy.', 'ok');
+  });
+
+  // ---- content search ---------------------------------------------------------
+  $('fs-search').addEventListener('click', () => {
+    const query = $('fs-query').value;
+    const log = $('fs-search-log'); log.innerHTML = '';
+    if (!query) {
+      log.appendChild(el('div', '', 'Enter a search term.'));
+      return;
+    }
+    const hits = [];
+    const live = window.MiniKernelFs.current();
+    Object.values(live.files).forEach(file => {
+      file.contents.split('\n').forEach((line, index) => {
+        if (line.indexOf(query) >= 0)
+          hits.push({ where: 'VFS ' + file.path + ':' + (index + 1), line: line.trim() });
+      });
+    });
+    state.repoFiles.forEach(file => {
+      file.contents.split('\n').forEach((line, index) => {
+        if (line.indexOf(query) >= 0)
+          hits.push({ where: 'repository ' + file.source + ':' + (index + 1), line: line.trim() });
+      });
+    });
+    hits.slice(0, 60).forEach(hit => log.appendChild(el('div', '', hit.where + '  ' + hit.line)));
+    if (!hits.length) log.appendChild(el('div', '', 'No matches for "' + query + '".'));
+    window.MiniKernelFs.message('Content search for "' + query + '": ' + hits.length +
+      ' match(es) across the virtual and repository files.');
+  });
+
+  // ---- self-tests -------------------------------------------------------------
+  function renderSelfTest(report) {
+    const table = $('selftest-table'); table.innerHTML = '';
+    const head = el('tr');
+    ['Test', 'Result', 'Expected', 'Actual', 'Message'].forEach(h => head.appendChild(el('th', '', h)));
+    table.appendChild(head);
+    report.results.forEach(item => {
+      const row = el('tr');
+      row.appendChild(el('td', '', item.name));
+      const status = el('td', '', item.ok ? 'PASS' : 'FAIL');
+      status.style.color = item.ok ? 'var(--good)' : 'var(--bad)';
+      status.style.fontWeight = '700';
+      row.appendChild(status);
+      row.appendChild(el('td', '', item.expected));
+      row.appendChild(el('td', '', item.actual));
+      row.appendChild(el('td', '', item.message));
+      table.appendChild(row);
+    });
+    const summary = $('selftest-summary');
+    summary.textContent = report.passed + ' passed · ' + report.failed + ' failed';
+    const stats = $('selftest-stats'); stats.innerHTML = '';
+    stat(stats, String(report.total), 'tests');
+    stat(stats, String(report.passed), 'passed');
+    stat(stats, String(report.failed), 'failed');
+    const status = $('selftest-status');
+    status.className = 'msg ' + (report.failed ? 'no' : 'ok');
+    status.textContent = report.failed
+      ? report.failed + ' test(s) failed: ' +
+        report.results.filter(item => !item.ok).map(item => item.name).join('; ')
+      : 'All ' + report.passed + ' frontend self-tests passed.';
+  }
+  function runSelfTests() {
+    if (!state.ready) {
+      const status = $('selftest-status');
+      status.className = 'msg no';
+      status.textContent = 'Repository samples are not loaded. Start the page with run_frontend.bat or node tools/serve.js.';
+      return null;
+    }
+    const report = KernelSelfTest.run(KernelCore, {
+      applications: state.applications,
+      samples: state.samples,
+      repoFiles: state.repoFiles
+    }, {
+      reset: reset,
+      snapshot: function () {
+        const live = window.MiniKernelFs.current();
+        return {
+          used: KernelCore.fsUsed(live),
+          files: Object.keys(live.files).length,
+          notes: (live.files['/docs/notes.txt'] || {}).contents || ''
+        };
+      }
+    });
+    renderSelfTest(report);
+    return report;
+  }
+  $('selftest-run').addEventListener('click', runSelfTests);
+  $('selftest-reset').addEventListener('click', () => {
+    reset();
+    runSelfTests();
+    document.getElementById('tabbtn-selftest').click();
+  });
+
+  // ---- boot -------------------------------------------------------------------
+  function showBootError(errors) {
+    const box = $('boot');
+    box.className = 'msg no';
+    box.innerHTML = '';
+    box.appendChild(el('div', '', 'The repository sample files could not be loaded, so the simulation is disabled.'));
+    box.appendChild(el('div', '', 'Serve the project over HTTP: run run_frontend.bat (or node tools/serve.js) and open http://127.0.0.1:8088/web/index.html. Opening web/index.html directly as a file blocks fetch().'));
+    const list = document.createElement('ul');
+    errors.forEach(error => list.appendChild(el('li', '', error)));
+    box.appendChild(list);
+    ['dash-run', 'dash-step', 'dash-play', 'app-run', 'app-step', 'app-play',
+     'selftest-run', 'sc-priority', 'sc-io', 'sc-file', 'integrated-run']
+      .forEach(id => { if ($(id)) $(id).disabled = true; });
+    appMessage('Repository samples unavailable; the kernel cannot run.', 'no');
+  }
+
+  async function boot() {
+    const box = $('boot');
+    box.className = 'msg wait';
+    box.textContent = 'Loading apps/app-manifest.json and the committed sample files…';
+    let result;
+    try {
+      result = await SampleLoader.load('../', { knownKinds: KernelCore.APP_KINDS });
+    } catch (error) {
+      showBootError([error.message]);
+      return;
+    }
+    if (!result.ok) { showBootError(result.errors); return; }
+
+    state.manifest = result.manifest;
+    state.applications = result.applications;
+    state.repoFiles = result.repoFiles;
+    state.samples = result.samples;
+    rows = result.applications.map(app => ({
+      kind: app.kind,
+      name: app.name,
+      priority: app.priority,
+      arrival: app.arrival,
+      memory: app.memory,
+      burst: app.burst || defaultBurst(app.kind),
+      description: app.description,
+      output: (app.outputFiles && app.outputFiles[0]) || ''
+    }));
+    state.ready = true;
+    renderLaunch();
+    renderRepoFiles();
+    window.MiniKernelFs.replace(KernelCore.fsFromSamples(repoSamples(), 128), { cwd: '/docs' });
+    box.className = 'msg ok';
+    box.textContent = 'Loaded ' + result.applications.length + ' application definitions and ' +
+      result.samples.length + ' sample files from the repository (' +
+      result.repoFiles.reduce((sum, file) => sum + file.bytes, 0) + ' bytes). ' +
+      'CPU and file-I/O priorities are separate policies.';
+    compute();
+    runIoComparison();
+    wireIntegrated();
+  }
+
   renderLaunch();
   runIoComparison();
-  compute();
-  wireIntegrated();
+  boot();
 })();
 </script>
 

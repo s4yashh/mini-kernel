@@ -1,0 +1,20 @@
+{
+  "kind": "text-editor",
+  "name": "Text Editor",
+  "description": "Reads a note, appends an edited line and saves a new virtual version.",
+  "workload": [
+    "file call: READ /docs/notes.txt (I/O priority 1)",
+    "2 CPU ticks: edit the text",
+    "file call: WRITE /apps/notes.txt (I/O priority 1)",
+    "1 CPU tick: finish"
+  ],
+  "defaultPriority": 2,
+  "defaultArrival": 0,
+  "memoryUnits": 10,
+  "resources": [1, 0, 0],
+  "inputFiles": ["/docs/notes.txt"],
+  "outputFiles": ["/apps/notes.txt"],
+  "allocation": "linked",
+  "operations": ["READ", "WRITE"],
+  "expectedOutput": "notes.txt with an appended [edited by text-editor] line"
+}

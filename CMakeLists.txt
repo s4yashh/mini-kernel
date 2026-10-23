@@ -29,4 +29,6 @@ find_program(NODE_EXECUTABLE node)
 if(NODE_EXECUTABLE)
     add_test(NAME web_kernel_core
              COMMAND ${NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/web/kernel_core_test.js)
+    add_test(NAME frontend_selftest
+             COMMAND ${NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/web/frontend_selftest_node.js)
 endif()

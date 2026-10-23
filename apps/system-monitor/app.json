@@ -1,0 +1,19 @@
+{
+  "kind": "system-monitor",
+  "name": "System Monitor",
+  "description": "Samples simulated kernel state (files, directories, block usage) and saves a snapshot.",
+  "workload": [
+    "2 CPU ticks: sample the simulated kernel state",
+    "file call: WRITE /apps/monitor.txt (I/O priority 2)",
+    "1 CPU tick: finish"
+  ],
+  "defaultPriority": 2,
+  "defaultArrival": 5,
+  "memoryUnits": 6,
+  "resources": [0, 0, 0],
+  "inputFiles": [],
+  "outputFiles": ["/apps/monitor.txt"],
+  "allocation": "linked",
+  "operations": ["WRITE"],
+  "expectedOutput": "simulated kernel snapshot: files=<n> directories=<n> used-blocks=<n>/128"
+}

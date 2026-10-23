@@ -1,0 +1,20 @@
+{
+  "kind": "file-analyzer",
+  "name": "File Analyzer",
+  "description": "Counts lines, words and characters in numbers.csv using the actual virtual contents.",
+  "workload": [
+    "file call: READ /docs/numbers.csv (I/O priority 3)",
+    "3 CPU ticks: count lines, words and characters",
+    "file call: WRITE /apps/analysis.txt (I/O priority 3)",
+    "1 CPU tick: finish"
+  ],
+  "defaultPriority": 3,
+  "defaultArrival": 1,
+  "memoryUnits": 6,
+  "resources": [0, 0, 0],
+  "inputFiles": ["/docs/numbers.csv"],
+  "outputFiles": ["/apps/analysis.txt"],
+  "allocation": "linked",
+  "operations": ["READ", "WRITE"],
+  "expectedOutput": "lines=6 words=6 characters=34"
+}

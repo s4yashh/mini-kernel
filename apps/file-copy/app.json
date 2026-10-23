@@ -1,0 +1,18 @@
+{
+  "kind": "file-copy",
+  "name": "File Copy Utility",
+  "description": "Copies report.txt to a new virtual file through the simulated block allocator.",
+  "workload": [
+    "file call: COPY /docs/report.txt to /apps/report-copy.txt (I/O priority 1)",
+    "1 CPU tick: finish"
+  ],
+  "defaultPriority": 1,
+  "defaultArrival": 4,
+  "memoryUnits": 9,
+  "resources": [0, 1, 0],
+  "inputFiles": ["/docs/report.txt"],
+  "outputFiles": ["/apps/report-copy.txt"],
+  "allocation": "contiguous",
+  "operations": ["COPY"],
+  "expectedOutput": "a byte-identical copy with its own block allocation"
+}
