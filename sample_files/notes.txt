@@ -1,0 +1,2 @@
+Kernel notes: the ready queue holds processes that can run.
+Priority 1 is the highest priority; 3 is the lowest.

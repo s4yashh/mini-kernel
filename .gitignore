@@ -1,0 +1,10 @@
+# Build output
+build/
+*.exe
+*.o
+*.obj
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+node_modules/

@@ -33,11 +33,18 @@ public:
         return process.pid;
     }
 
+    void dispatch(int pid, int time, std::ostream& out = std::cout) {
+        PCB& process = find(pid);
+        if (process.state != State::READY)
+            throw std::logic_error("Only a ready process can be dispatched");
+        setState(process, State::RUNNING, time, true, out);
+    }
+
     void blockForIO(int pid, int time, const std::string& device,
                     std::ostream& out = std::cout) {
         PCB& process = find(pid);
-        if (process.state != State::READY && process.state != State::RUNNING)
-            throw std::logic_error("Only a ready or running process can block for I/O");
+        if (process.state != State::RUNNING)
+            throw std::logic_error("Only a running process can issue an I/O request");
         out << "[t=" << time << "] P" << pid << " requests " << device << " I/O\n";
         setState(process, State::WAITING, time, true, out);
     }

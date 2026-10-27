@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "name": "Mini Kernel Simulator application and sample catalogue",
+  "description": "Repository sources for the browser simulator. Every path is relative to the repository root and is validated by the frontend loader.",
+  "sampleRoot": "sample_files",
+  "applications": [
+    { "kind": "calculator", "definition": "apps/calculator/app.json" },
+    { "kind": "text-editor", "definition": "apps/text-editor/app.json" },
+    { "kind": "counter", "definition": "apps/counter/app.json" },
+    { "kind": "file-search", "definition": "apps/file-search/app.json" },
+    { "kind": "file-analyzer", "definition": "apps/file-analyzer/app.json" },
+    { "kind": "file-copy", "definition": "apps/file-copy/app.json" },
+    { "kind": "indexer", "definition": "apps/background-indexer/app.json" },
+    { "kind": "system-monitor", "definition": "apps/system-monitor/app.json" }
+  ],
+  "samples": [
+    {
+      "source": "sample_files/notes.txt",
+      "vfsPath": "/docs/notes.txt",
+      "allocation": "contiguous",
+      "description": "Short editable note with priority rules."
+    },
+    {
+      "source": "sample_files/report.txt",
+      "vfsPath": "/docs/report.txt",
+      "allocation": "linked",
+      "description": "Project report fragment used by the copy utility."
+    },
+    {
+      "source": "sample_files/numbers.csv",
+      "vfsPath": "/docs/numbers.csv",
+      "allocation": "contiguous",
+      "description": "Header plus five numeric rows for the analyzer."
+    },
+    {
+      "source": "sample_files/source.c",
+      "vfsPath": "/docs/source.c",
+      "allocation": "indexed",
+      "description": "Small valid C program."
+    },
+    {
+      "source": "sample_files/config.json",
+      "vfsPath": "/docs/config.json",
+      "allocation": "linked",
+      "description": "Valid JSON configuration for the simulator."
+    },
+    {
+      "source": "sample_files/system.log",
+      "vfsPath": "/docs/system.log",
+      "allocation": "indexed",
+      "description": "Log with INFO/WARN/ERROR lines for file search."
+    },
+    {
+      "source": "sample_files/style.txt",
+      "vfsPath": "/docs/style.txt",
+      "allocation": "contiguous",
+      "description": "One-line style guide read by the indexer."
+    }
+  ]
+}

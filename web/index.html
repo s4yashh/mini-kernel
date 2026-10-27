@@ -106,6 +106,8 @@ td.num, th.num { text-align: right; }
 .log { font-family: var(--font-data); font-size: 0.82rem; max-height: 300px; overflow: auto; display: grid; gap: 2px; }
 .log div { padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
 .log .t { color: var(--muted); display: inline-block; min-width: 4.4em; }
+.log .t.wide { min-width: 9.6em; }
+#dash-decisions div, #app-output div, #io-log div { white-space: normal; }
 .log .last { background: var(--idle); }
 .st-RUNNING { color: var(--good); font-weight: 700; }
 .st-TERMINATED { color: var(--bad); font-weight: 700; }
@@ -157,10 +159,14 @@ td.hit { color: var(--good); }
   <header>
     <h1>Mini Kernel Simulator</h1>
     <p class="sub">An interactive, browser-based demonstration of the Mini Kernel Simulator: processes, CPU, memory, resources, synchronization, files and disk I/O. Each module explains what the kernel is doing.</p>
-    <p class="note" style="margin-top:8px">Deterministic educational model · runs locally in this page · does not access your computer’s files or control a real operating system.</p>
+    <p class="note" style="margin-top:8px">Deterministic educational model · runs locally in this page · reads its sample files from the repository over HTTP · does not control a real operating system.</p>
+    <div class="msg" id="boot" role="status">Loading repository sample files…</div>
   </header>
 
   <div class="tabs" role="tablist" aria-label="Kernel modules">
+    <button class="tab" role="tab" id="tabbtn-dash" aria-selected="false" aria-controls="tab-dash">Kernel dashboard</button>
+    <button class="tab" role="tab" id="tabbtn-apps" aria-selected="false" aria-controls="tab-apps">Applications</button>
+    <button class="tab" role="tab" id="tabbtn-io" aria-selected="false" aria-controls="tab-io">I/O queue</button>
     <button class="tab" role="tab" id="tabbtn-sched" aria-selected="true" aria-controls="tab-sched">CPU scheduling</button>
     <button class="tab" role="tab" id="tabbtn-page" aria-selected="false" aria-controls="tab-page">Memory paging</button>
     <button class="tab" role="tab" id="tabbtn-bank" aria-selected="false" aria-controls="tab-bank">Deadlock avoidance</button>
@@ -171,7 +177,140 @@ td.hit { color: var(--good); }
     <button class="tab" role="tab" id="tabbtn-deadlock" aria-selected="false" aria-controls="tab-deadlock">Deadlock &amp; IPC</button>
     <button class="tab" role="tab" id="tabbtn-fs" aria-selected="false" aria-controls="tab-fs">File system</button>
     <button class="tab" role="tab" id="tabbtn-integrated" aria-selected="false" aria-controls="tab-integrated">Integrated run</button>
+    <button class="tab" role="tab" id="tabbtn-selftest" aria-selected="false" aria-controls="tab-selftest">Self-tests</button>
   </div>
+
+  <section class="panel" id="tab-dash" role="tabpanel" aria-labelledby="tabbtn-dash" hidden>
+    <div class="card">
+      <div class="row">
+        <button class="btn primary" id="dash-run" type="button">Run to completion</button>
+        <button class="btn" id="dash-step" type="button">Step</button>
+        <button class="btn" id="dash-play" type="button">Play</button>
+        <button class="btn" id="dash-reset" type="button">Reset</button>
+        <span class="badge" id="dash-clock">t = 0</span>
+        <span class="badge" id="dash-policy">priority CPU · priority I/O</span>
+      </div>
+      <p class="note" style="margin-top:8px">This dashboard is driven by the application simulation on the Applications tab. Run, step or play, then inspect queues, RAM, pending file requests and the last scheduling decisions.</p>
+      <div class="stats" id="dash-stats"></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Queues</h2>
+        <div class="log" id="dash-queues"></div>
+      </div>
+      <div class="card">
+        <h2>CPU and disk lanes</h2>
+        <div class="timeline" id="dash-timeline"></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>RAM map</h2>
+        <div class="memory-map" id="dash-memory"></div>
+        <p class="note" id="dash-memory-note" style="margin-top:8px"></p>
+      </div>
+      <div class="card">
+        <h2>Pending file requests</h2>
+        <div class="scroll"><table id="dash-io-table"></table></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Recent scheduling decisions</h2>
+        <div class="log" id="dash-decisions"></div>
+      </div>
+      <div class="card">
+        <h2>Process table</h2>
+        <div class="scroll"><table id="dash-procs"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-apps" role="tabpanel" aria-labelledby="tabbtn-apps" hidden>
+    <div class="card">
+      <h2>Applications to launch</h2>
+      <div class="scroll"><table id="app-launch"></table></div>
+      <p class="note" style="margin-top:10px">Lower priority number means higher CPU priority (1 highest). File requests carry their own priority, independent of the CPU priority. Editing the CPU burst scales the application's CPU work. After Run/Step, press <strong>Terminate</strong> in the status table to kill a process at the current tick; Reset restores it.</p>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="app-add" type="button">Add application</button>
+        <label>CPU policy
+          <select id="app-cpu">
+            <option value="priority">Preemptive priority</option>
+            <option value="nonpreemptive">Non-preemptive priority</option>
+            <option value="fcfs">FCFS (non-preemptive)</option>
+          </select>
+        </label>
+        <label>I/O policy
+          <select id="app-io">
+            <option value="priority">Priority</option>
+            <option value="fcfs">FCFS</option>
+          </select>
+        </label>
+        <button class="btn primary" id="app-run" type="button">Run to completion</button>
+        <button class="btn" id="app-step" type="button">Step</button>
+        <button class="btn" id="app-play" type="button">Play</button>
+        <button class="btn" id="app-reset" type="button">Reset</button>
+        <span class="badge" id="app-clock">t = 0</span>
+      </div>
+      <div class="msg" id="app-message" role="status" style="display:none"></div>
+    </div>
+    <div class="card">
+      <h2>Application status</h2>
+      <div class="scroll"><table id="app-status"></table></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Output, transitions and metrics</h2>
+        <div class="log" id="app-output"></div>
+      </div>
+      <div class="card">
+        <h2>Files in the simulated file system</h2>
+        <div class="scroll"><table id="app-files"></table></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Guided scenarios</h2>
+      <div class="row">
+        <button class="btn" id="sc-priority" type="button">1 · CPU priority</button>
+        <button class="btn" id="sc-io" type="button">2 · I/O priority</button>
+        <button class="btn" id="sc-file" type="button">3 · File-dependent app</button>
+        <button class="btn" id="sc-fs" type="button">4 · File system and blocks</button>
+        <button class="btn" id="sc-rest" type="button">5–7 · Memory, deadlock, paging, disk</button>
+      </div>
+      <p class="note" style="margin-top:10px">Each scenario resets the simulation and can be repeated. Scenarios 2 and 4 switch to the I/O queue and File system tabs. Scenarios 5–7 use the existing Memory manager, Deadlock &amp; IPC, Memory paging and Disk scheduling tabs with identical inputs per comparison.</p>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-io" role="tabpanel" aria-labelledby="tabbtn-io" hidden>
+    <div class="card">
+      <h2>Same request set, two I/O policies</h2>
+      <p class="note">The CPU is not involved in this comparison. Seven file requests are queued for one simulated device: five background indexer reads, an editor write (priority 1) and a search read (priority 2). Request priority is independent of process priority.</p>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" id="io-compare" type="button">Run comparison</button>
+        <label>Selection log
+          <select id="io-which"><option value="priority">Priority</option><option value="fcfs">FCFS</option></select>
+        </label>
+      </div>
+      <div class="stats" id="io-stats"></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2>FCFS service order</h2><div class="log" id="io-fcfs-order"></div></div>
+      <div class="card"><h2>Priority service order</h2><div class="log" id="io-priority-order"></div></div>
+    </div>
+    <div class="card">
+      <h2>Per-request comparison</h2>
+      <div class="scroll"><table id="io-table"></table></div>
+    </div>
+    <div class="card">
+      <h2>Why each request was selected</h2>
+      <div class="log" id="io-log"></div>
+    </div>
+    <div class="card">
+      <h2>Requests from the current application run</h2>
+      <div class="scroll"><table id="io-run-table"></table></div>
+      <p class="note" style="margin-top:8px">These requests were submitted by the applications themselves; this table shows their priorities, service order and waiting time.</p>
+    </div>
+  </section>
 
   <section class="panel" id="tab-sched" role="tabpanel" aria-labelledby="tabbtn-sched">
     <div class="card">
@@ -203,10 +342,12 @@ td.hit { color: var(--good); }
       <div class="gantt-scroll"><div id="gantt-box"></div></div>
       <div class="player">
         <button class="btn primary" id="play" type="button">Play</button>
+        <button class="btn" id="step" type="button">Step</button>
         <input type="range" id="scrub" min="0" max="1" value="1" aria-label="Simulation time">
         <span class="clock" id="clock">t = 0</span>
       </div>
       <div class="stats" id="sched-stats"></div>
+      <div class="log" id="sched-queues" style="margin-top:12px"></div>
     </div>
 
     <div class="grid2">
@@ -289,9 +430,10 @@ td.hit { color: var(--good); }
     <div class="card">
       <h2>Deterministic synchronization demos</h2>
       <div class="row">
-        <button class="btn primary" id="pc-run" type="button">Producer–consumer</button>
+        <button class="btn" id="pc-run" type="button">Producer–consumer</button>
         <button class="btn" id="dining-run" type="button">Dining philosophers</button>
-        <button class="btn" id="peterson-run" type="button">Peterson protocol</button>
+        <button class="btn" id="peterson-run" type="button">Peterson / Bakery</button>
+        <button class="btn" id="sem-run" type="button">Semaphore / mutex</button>
       </div>
       <p class="note" style="margin-top:10px">These are reproducible single-threaded traces; the page does not create real threads.</p>
     </div>
@@ -328,9 +470,27 @@ td.hit { color: var(--good); }
         <label>Physical memory units <input type="number" id="mem-capacity" value="100" min="40" max="512"></label>
         <button class="btn primary" id="memory-run" type="button">Compare First / Best / Worst Fit</button>
       </div>
-      <p class="note" style="margin-top:10px">The demo allocates 20, 15, 25 and 10 units, frees two allocations, then tries a 22-unit request. Free space can be sufficient while no single hole is large enough.</p>
+      <p class="note" style="margin-top:10px">The demo allocates 10, 25, 5, 30, 5, 20 and 5 units, frees P2, P4 and P6, then requests 18 and 12 units. The three policies place the same requests differently and leave different fragmentation.</p>
       <div class="scroll"><table id="memory-table"></table></div>
       <div class="grid2" id="memory-maps"></div>
+    </div>
+    <div class="card">
+      <h2>Interactive allocator</h2>
+      <p class="note">Allocate and release partitions yourself. The policy decides which hole is chosen; the map, free space and fragmentation update from the simulated allocator.</p>
+      <div class="row">
+        <label>Capacity <input type="number" id="mem2-capacity" value="100" min="20" max="512"></label>
+        <label>Policy
+          <select id="mem2-policy"><option>First Fit</option><option>Best Fit</option><option>Worst Fit</option></select>
+        </label>
+        <label>PID <input type="number" id="mem2-pid" value="1" min="1"></label>
+        <label>Size <input type="number" id="mem2-size" value="20" min="1"></label>
+        <button class="btn primary" id="mem2-allocate" type="button">Allocate</button>
+        <button class="btn" id="mem2-release" type="button">Release PID</button>
+        <button class="btn" id="mem2-reset" type="button">Reset</button>
+      </div>
+      <div class="memory-map" id="mem2-map" style="margin-top:12px"></div>
+      <div class="stats" id="mem2-stats"></div>
+      <div class="log" id="mem2-log" style="margin-top:10px"></div>
     </div>
     <div class="grid2">
       <div class="card">
@@ -369,8 +529,20 @@ td.hit { color: var(--good); }
     <div class="grid2">
       <div class="card">
         <h2>Deadlock detection and recovery</h2>
-        <p class="note">P0 holds R0 and waits for R1; P1 holds R1 and waits for R0. Detect the cycle, terminate a victim, and release its resource.</p>
-        <button class="btn primary" id="deadlock-run" type="button">Detect and recover</button>
+        <p class="note">P0 holds R0 and waits for R1; P1 holds R1 and waits for R0. The table is the simulated allocation/request state; detection and recovery run in the browser.</p>
+        <div class="scroll"><table id="deadlock-table"></table></div>
+        <div class="row" style="margin-top:10px">
+          <label>Victim policy
+            <select id="deadlock-policy">
+              <option value="first">Lowest-numbered deadlocked process</option>
+              <option value="least">Fewest resources held</option>
+            </select>
+          </label>
+          <button class="btn primary" id="deadlock-run" type="button">Detect deadlock</button>
+          <button class="btn" id="deadlock-recover" type="button">Recover</button>
+          <button class="btn" id="deadlock-reset" type="button">Reset state</button>
+        </div>
+        <div class="msg" id="deadlock-msg" role="status"></div>
         <div class="log" id="deadlock-log" style="margin-top:10px"></div>
       </div>
       <div class="card">
@@ -384,11 +556,43 @@ td.hit { color: var(--good); }
 
   <section class="panel" id="tab-fs" role="tabpanel" aria-labelledby="tabbtn-fs" hidden>
     <div class="card">
-      <h2>Simulated file-system operations</h2>
+      <h2>Repository sample files (read-only)</h2>
+      <p class="note">These are the actual committed files under <code>sample_files/</code>. They are loaded over HTTP and copied into the virtual file system at start-up; the originals are never modified.</p>
+      <div class="scroll"><table id="repo-table"></table></div>
+      <div class="grid2" style="margin-top:10px">
+        <div>
+          <label>Selected sample
+            <input class="wide" id="repo-selected" readonly value="(none)">
+          </label>
+          <label style="margin-top:8px">Copy into the virtual file system at
+            <input class="wide" id="repo-target" value="/apps/report-copy.txt">
+          </label>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary" id="repo-copy" type="button">Copy into VFS</button>
+            <button class="btn" id="repo-open" type="button">Open in editor</button>
+          </div>
+          <div class="msg" id="repo-message" role="status" style="display:none"></div>
+        </div>
+        <div>
+          <h2>Actual committed contents</h2>
+          <pre class="output-box" id="repo-preview" style="max-height:220px;overflow:auto">Select a sample file to preview its real contents.</pre>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Virtual file system</h2>
       <div class="row">
-        <label>Path (use /apps or /docs)
-          <input class="wide" id="fs-path" value="/apps/notes.txt" aria-label="File path">
+        <label>Current directory
+          <input id="fs-cwd" value="/docs" aria-label="Current directory" style="width:9em">
         </label>
+        <label>Path (relative or absolute)
+          <input class="wide" id="fs-path" value="notes.txt" aria-label="File path">
+        </label>
+        <label>Target (rename / copy / move)
+          <input class="wide" id="fs-target" value="notes-copy.txt" aria-label="Target path">
+        </label>
+      </div>
+      <div class="row" style="margin-top:10px">
         <label>Allocation
           <select id="fs-method"><option value="contiguous">Contiguous</option><option value="linked">Linked</option><option value="indexed">Indexed</option></select>
         </label>
@@ -401,26 +605,46 @@ td.hit { color: var(--good); }
         <label>Direct offset <input type="number" id="fs-offset" value="0" min="0"></label>
       </div>
       <div class="row" style="margin-top:10px">
-        <label>Contents
-          <input class="wide" id="fs-content" value="A small simulated file-system demo." aria-label="File contents">
+        <label style="flex:1 1 420px">Contents / editor (open a file, edit it, then Write)
+          <textarea class="wide" id="fs-content" rows="4" aria-label="File contents">Select a file and press Open, or type new contents.</textarea>
         </label>
+      </div>
+      <div class="row" style="margin-top:10px">
         <button class="btn primary" id="fs-write" type="button">Write</button>
         <button class="btn" id="fs-read" type="button">Read</button>
         <button class="btn" id="fs-delete" type="button">Delete</button>
+        <button class="btn" id="fs-rename" type="button">Rename</button>
+        <button class="btn" id="fs-copy" type="button">Copy</button>
+        <button class="btn" id="fs-move" type="button">Move</button>
+        <button class="btn" id="fs-meta" type="button">Metadata</button>
         <button class="btn" id="fs-list" type="button">Refresh directory</button>
       </div>
+      <div class="row" style="margin-top:10px">
+        <label>New directory (below the current directory)
+          <input id="fs-dir-name" value="work" aria-label="New directory name">
+        </label>
+        <button class="btn" id="fs-mkdir" type="button">Create directory</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label style="flex:1 1 320px">Search virtual and repository contents
+          <input class="wide" id="fs-query" value="ERROR" aria-label="Search term">
+        </label>
+        <button class="btn" id="fs-search" type="button">Search contents</button>
+      </div>
+      <div class="log" id="fs-search-log" style="margin-top:8px"></div>
       <div class="output-box" id="fs-message" role="status" style="margin-top:10px">In-memory only. Nothing is written to your computer.</div>
+      <p class="note" style="margin-top:8px">The explorer and the application kernel share this virtual file system: app writes appear here, and your edits become the inputs for the next run. <strong>Reset</strong> on the Applications tab restores the repository copies.</p>
     </div>
     <div class="grid2">
       <div class="card"><h2>Directory entries</h2><div class="scroll"><table id="fs-table"></table></div></div>
-      <div class="card"><h2>Disk blocks and transaction journal</h2><div class="log" id="fs-blocks"></div><div class="log" id="fs-journal" style="margin-top:10px"></div></div>
+      <div class="card"><h2>Disk blocks, metadata and journal</h2><div class="log" id="fs-blocks"></div><div class="log" id="fs-journal" style="margin-top:10px"></div></div>
     </div>
   </section>
 
   <section class="panel" id="tab-integrated" role="tabpanel" aria-labelledby="tabbtn-integrated" hidden>
     <div class="card">
       <h2>Launch the prioritized applications</h2>
-      <p class="note">Priority 1 runs before 2 and 3. Each user app requests resources, gets RAM, uses CPU, enters WAITING for file I/O, wakes when disk blocks finish, and releases resources on exit.</p>
+      <p class="note">This view runs the applications configured on the Applications tab (eight by default) through the same simulated kernel. Priority 1 runs before 2 and 3. Each app requests resources, gets RAM, uses CPU, enters WAITING for file I/O, wakes when its disk blocks finish, and releases resources on exit.</p>
       <div class="scroll"><table id="app-table"></table></div>
       <button class="btn primary" id="integrated-run" type="button" style="margin-top:12px">Run integrated kernel demo</button>
     </div>
@@ -433,8 +657,1213 @@ td.hit { color: var(--good); }
       <div class="card"><h2>Combined kernel log</h2><div class="log" id="integrated-log"></div></div>
       <div class="card"><h2>RAM, files and disk blocks</h2><div class="log" id="integrated-ram"></div><div class="scroll"><table id="integrated-files"></table></div><div class="log" id="integrated-blocks" style="margin-top:10px"></div></div>
     </div>
+  </section>  <section class="panel" id="tab-selftest" role="tabpanel" aria-labelledby="tabbtn-selftest" hidden>
+    <div class="card">
+      <h2>Browser verification suite</h2>
+      <p class="note">These tests execute the real JavaScript simulation core against the committed repository files: application definitions, sample contents, scheduling, I/O policies, the virtual file system, memory allocation, deadlock and error handling. They do not check whether HTML elements exist.</p>
+      <div class="row">
+        <button class="btn primary" id="selftest-run" type="button">Run self-tests</button>
+        <button class="btn" id="selftest-reset" type="button">Reset demo &amp; rerun</button>
+        <span class="badge" id="selftest-summary">not run</span>
+      </div>
+      <div class="msg" id="selftest-status" role="status"></div>
+      <div class="stats" id="selftest-stats"></div>
+    </div>
+    <div class="card">
+      <h2>Results</h2>
+      <p class="note">Failures show the expected and actual values. The suite can be rerun after Reset.</p>
+      <div class="scroll"><table id="selftest-table"></table></div>
+    </div>
   </section>
+
 </div>
+
+<script>
+/* KERNEL-CORE:BEGIN
+   Pure simulation logic shared by the visualizer and the Node regression test
+   (tests/web/kernel_core_test.js). No DOM access is allowed in this block. */
+var KernelCore = (function () {
+  'use strict';
+
+  var APP_KINDS = ['calculator', 'text-editor', 'counter', 'file-search',
+                   'file-analyzer', 'file-copy', 'indexer', 'system-monitor'];
+
+  var KIND_INFO = {
+    calculator: { label: 'calculator', desc: 'computes 14 + 28 and saves the result', mem: 6, res: [1,0,0], out: '/apps/calculator.txt', alloc: 'contiguous' },
+    'text-editor': { label: 'text-editor', desc: 'reads a note, edits it and writes the new version', mem: 10, res: [1,0,0], out: '/apps/notes.txt', alloc: 'linked' },
+    counter: { label: 'counter', desc: 'CPU-intensive counting workload', mem: 8, res: [0,1,0], out: '/apps/counter.txt', alloc: 'indexed' },
+    'file-search': { label: 'file-search', desc: 'searches system.log for a word', mem: 7, res: [1,0,0], out: '/apps/search.txt', alloc: 'indexed' },
+    'file-analyzer': { label: 'file-analyzer', desc: 'counts lines, words and characters in a CSV', mem: 6, res: [0,0,0], out: '/apps/analysis.txt', alloc: 'linked' },
+    'file-copy': { label: 'file-copy', desc: 'copies report.txt to a new file', mem: 9, res: [0,1,0], out: '/apps/report-copy.txt', alloc: 'contiguous' },
+    indexer: { label: 'background-indexer', desc: 'reads five files and builds an index', mem: 8, res: [0,0,1], out: '/apps/index.txt', alloc: 'indexed' },
+    'system-monitor': { label: 'system-monitor', desc: 'samples simulated kernel state', mem: 6, res: [0,0,0], out: '/apps/monitor.txt', alloc: 'linked' }
+  };
+
+  // ---- simulated file system -------------------------------------------------
+  function newFs(totalBlocks) {
+    var total = totalBlocks || 128;
+    return { total: total, blockSize: 16, owners: new Array(total).fill(0),
+             files: {}, dirs: { '/': true }, journal: [], nextId: 1 };
+  }
+  function parentOf(path) {
+    var i = path.lastIndexOf('/');
+    return i <= 0 ? '/' : path.slice(0, i);
+  }
+  function normalise(path) {
+    if (typeof path !== 'string' || path.charAt(0) !== '/') return null;
+    var out = [];
+    path.split('/').forEach(function (part) {
+      if (!part || part === '.') return;
+      if (part === '..') { if (!out.length) return null; out.pop(); return; }
+      out.push(part);
+    });
+    return '/' + out.join('/');
+  }
+  function blocksFor(fs, bytes) { return Math.max(1, Math.ceil(bytes / fs.blockSize)); }
+  function fsUsed(fs) { return fs.owners.filter(function (x) { return x !== 0; }).length; }
+  function fsFree(fs) { return fs.total - fsUsed(fs); }
+  function allocateBlocks(fs, id, count, method) {
+    var chosen = [], i, run = 0, start = -1;
+    if (method === 'contiguous') {
+      for (i = 0; i < fs.total; i++) {
+        if (fs.owners[i] === 0) { if (run === 0) start = i; run++; if (run === count) break; }
+        else run = 0;
+      }
+      if (run < count) return null;
+      for (i = 0; i < count; i++) chosen.push(start + i);
+    } else {
+      for (i = 0; i < fs.total && chosen.length < count; i++)
+        if (fs.owners[i] === 0) chosen.push(i);
+      if (chosen.length !== count) return null;
+    }
+    return chosen;
+  }
+  function fsWrite(fs, path, contents, method, owner) {
+    owner = owner || 'user';
+    path = normalise(path);
+    if (!path || path === '/' || fs.dirs[path]) return false;
+    if (!fs.dirs[parentOf(path)]) return false;
+    var existing = fs.files[path];
+    if (existing && owner !== 'admin' && owner !== existing.owner) return false;
+    var trial = fs.owners.slice();
+    if (existing) existing.blocks.forEach(function (b) { trial[b] = 0; });
+    var dataCount = blocksFor(fs, contents.length);
+    var indexCount = method === 'indexed' ? 1 : 0;
+    var id = existing ? existing.id : fs.nextId;
+    var probe = { total: fs.total, owners: trial };
+    var chosen = allocateBlocks(probe, id, dataCount + indexCount, method);
+    if (!chosen) return false;
+    chosen.forEach(function (b) { trial[b] = id; });
+    fs.owners = trial;
+    var source = 'virtual';
+    if (existing) {
+      if (existing.source === 'repository sample') source = 'repository sample (edited)';
+      else source = existing.source || 'virtual';
+    }
+    fs.files[path] = {
+      id: id, path: path, owner: existing ? existing.owner : owner, contents: contents,
+      method: method, blocks: chosen.slice(), indexBlock: method === 'indexed' ? chosen[chosen.length - 1] : null,
+      writes: existing ? existing.writes + 1 : 1,
+      source: source,
+      origin: existing ? (existing.origin || '') : '',
+      dirty: existing ? true : false
+    };
+    if (!existing) fs.nextId++;
+    fs.journal.push('BEGIN write ' + path);
+    fs.journal.push('COMMIT write ' + path);
+    return true;
+  }
+  function fsRead(fs, path) {
+    path = normalise(path);
+    if (!fs.files[path]) throw new Error('file does not exist: ' + path);
+    return fs.files[path].contents;
+  }
+  function fsMkdir(fs, path) {
+    path = normalise(path);
+    if (!path || path === '/') return path === '/';
+    if (fs.files[path] || fs.dirs[path]) return false;
+    if (!fs.dirs[parentOf(path)]) return false;
+    fs.dirs[path] = true;
+    fs.journal.push('COMMIT mkdir ' + path);
+    return true;
+  }
+  function fsMkdirs(fs, path) {
+    var clean = normalise(path);
+    if (!clean) return false;
+    var parts = clean.split('/').filter(Boolean), current = '';
+    for (var i = 0; i < parts.length; i++) {
+      current += '/' + parts[i];
+      if (!fs.dirs[current] && !fsMkdir(fs, current)) return false;
+    }
+    return true;
+  }
+  function fsDelete(fs, path) {
+    path = normalise(path);
+    var file = fs.files[path];
+    if (!file) return false;
+    file.blocks.forEach(function (b) { fs.owners[b] = 0; });
+    delete fs.files[path];
+    fs.journal.push('COMMIT delete ' + path);
+    return true;
+  }
+  function fsCopy(fs, from, to, method) {
+    from = normalise(from); to = normalise(to);
+    if (!from || !to || from === to || !fs.files[from]) return false;
+    try {
+      if (!fsWrite(fs, to, fsRead(fs, from), method, fs.files[from].owner)) return false;
+    } catch (error) { return false; }
+    var target = fs.files[to];
+    target.source = 'virtual copy';
+    target.origin = fs.files[from].origin || from;
+    target.copiedFrom = from;
+    return true;
+  }
+  function fsRename(fs, from, to) {
+    from = normalise(from); to = normalise(to);
+    if (!from || !to || from === to || !fs.files[from] || fs.files[to] || fs.dirs[to]) return false;
+    if (!fs.dirs[parentOf(to)]) return false;
+    var file = fs.files[from];
+    delete fs.files[from];
+    file.path = to;
+    fs.files[to] = file;
+    return true;
+  }
+  function fsAppend(fs, path, extra, method) {
+    path = normalise(path);
+    if (!fs.files[path]) return false;
+    return fsWrite(fs, path, fs.files[path].contents + extra, method, fs.files[path].owner);
+  }
+  function seedFs(fs) {
+    fsMkdirs(fs, '/docs'); fsMkdirs(fs, '/apps');
+    var seed = [
+      ['/docs/notes.txt', 'Kernel notes: the ready queue holds processes that can run.\nPriority 1 is the highest priority; 3 is the lowest.\n', 'contiguous'],
+      ['/docs/report.txt', 'Mini Kernel Simulator report\nReview 2: applications, CPU priority and file I/O priority.\n', 'linked'],
+      ['/docs/numbers.csv', 'id,value\n1,10\n2,20\n3,30\n4,40\n5,50\n', 'contiguous'],
+      ['/docs/source.c', '#include <stdio.h>\nint main(void) {\n    return 0;\n}\n', 'indexed'],
+      ['/docs/config.json', '{\n  "scheduler": "priority",\n  "ioPolicy": "priority"\n}\n', 'linked'],
+      ['/docs/system.log', 'boot: mini kernel 1.0\nINFO: mounted /apps\nERROR: simulated disk retry\nWARN: memory pressure\nERROR: request queue full\nINFO: recovery complete\n', 'indexed'],
+      ['/docs/style.txt', 'Style guide: one statement per line.\n', 'contiguous']
+    ];
+    seed.forEach(function (item) {
+      if (!fs.files[item[0]]) fsWrite(fs, item[0], item[1], item[2], 'user');
+    });
+    return fs;
+  }
+
+  // Initialises a fresh virtual file system from repository samples:
+  // [{ vfsPath, source, contents, allocation }]. Throws if a sample cannot be
+  // stored, so a missing or oversized file is never silently ignored.
+  function fsFromSamples(samples, totalBlocks) {
+    var fs = newFs(totalBlocks || 128);
+    fsMkdirs(fs, '/docs'); fsMkdirs(fs, '/apps');
+    (samples || []).forEach(function (sample) {
+      var path = normalise(sample.vfsPath || sample.path);
+      if (!path) throw new Error('invalid sample path: ' + (sample.vfsPath || sample.path));
+      if (!fsWrite(fs, path, sample.contents, sample.allocation || 'contiguous', 'user')) {
+        throw new Error('could not initialise sample ' + path +
+                        ' (missing directory, duplicate path or insufficient blocks)');
+      }
+      var entry = fs.files[path];
+      entry.source = 'repository sample';
+      entry.origin = sample.source || sample.repoPath || '';
+      entry.dirty = false;
+    });
+    return fs;
+  }
+
+  // Deep copy of a virtual file system, so a kernel run never mutates the live
+  // explorer state until it completes (and can then replace it deliberately).
+  function cloneFs(fs) {
+    var copy = {
+      total: fs.total, blockSize: fs.blockSize, owners: fs.owners.slice(),
+      files: {}, dirs: {}, journal: fs.journal.slice(), nextId: fs.nextId
+    };
+    Object.keys(fs.files).forEach(function (path) {
+      var file = fs.files[path];
+      copy.files[path] = {
+        id: file.id, path: file.path, owner: file.owner, contents: file.contents,
+        method: file.method, blocks: file.blocks.slice(), indexBlock: file.indexBlock,
+        writes: file.writes, source: file.source, origin: file.origin, dirty: file.dirty
+      };
+    });
+    Object.keys(fs.dirs).forEach(function (dir) { copy.dirs[dir] = true; });
+    return copy;
+  }
+
+  // ---- application programs --------------------------------------------------
+  function stepsFor(kind) {
+    switch (kind) {
+      case 'calculator': return [
+        { type: 'cpu', ticks: 1, compute: function (rt) { rt.pending = '14 + 28 = 42'; rt.result = 'computed 14 + 28 = 42'; } },
+        { type: 'io', op: 'WRITE', path: '/apps/calculator.txt', priority: 2 },
+        { type: 'cpu', ticks: 1 }
+      ];
+      case 'text-editor': return [
+        { type: 'io', op: 'READ', path: '/docs/notes.txt', priority: 1 },
+        { type: 'cpu', ticks: 2, compute: function (rt) {
+            rt.pending = rt.buffer + '[edited by text-editor]\n';
+            rt.result = 'read ' + rt.buffer.length + ' bytes and appended one line';
+          } },
+        { type: 'io', op: 'WRITE', path: '/apps/notes.txt', priority: 1 },
+        { type: 'cpu', ticks: 1 }
+      ];
+      case 'counter': return [
+        { type: 'cpu', ticks: 5, compute: function (rt) {
+            var total = 0;
+            for (var i = 1; i <= 1000; i++) total += i;
+            rt.pending = '1 + 2 + ... + 1000 = ' + total;
+            rt.result = 'counted 1..1000, total ' + total;
+          } },
+        { type: 'io', op: 'WRITE', path: '/apps/counter.txt', priority: 3 },
+        { type: 'cpu', ticks: 1 }
+      ];
+      case 'file-search': return [
+        { type: 'io', op: 'READ', path: '/docs/system.log', priority: 2 },
+        { type: 'cpu', ticks: 2, compute: function (rt) {
+            var matches = rt.buffer.split('ERROR').length - 1;
+            rt.pending = 'searched /docs/system.log for ERROR: ' + matches + ' match(es)';
+            rt.result = 'found ' + matches + ' occurrence(s) of ERROR';
+          } },
+        { type: 'io', op: 'WRITE', path: '/apps/search.txt', priority: 2 },
+        { type: 'cpu', ticks: 1 }
+      ];
+      case 'file-analyzer': return [
+        { type: 'io', op: 'READ', path: '/docs/numbers.csv', priority: 3 },
+        { type: 'cpu', ticks: 3, compute: function (rt) {
+            var lines = rt.buffer.split('\n');
+            if (lines.length && lines[lines.length - 1] === '') lines.pop();
+            var words = rt.buffer.split(/\s+/).filter(Boolean).length;
+            rt.pending = 'lines=' + lines.length + ' words=' + words + ' characters=' + rt.buffer.length;
+            rt.result = rt.pending;
+          } },
+        { type: 'io', op: 'WRITE', path: '/apps/analysis.txt', priority: 3 },
+        { type: 'cpu', ticks: 1 }
+      ];
+      case 'file-copy': return [
+        { type: 'io', op: 'COPY', path: '/docs/report.txt', destination: '/apps/report-copy.txt', priority: 1 },
+        { type: 'cpu', ticks: 1, compute: function (rt) { rt.result = 'copied /docs/report.txt to /apps/report-copy.txt'; } }
+      ];
+      case 'indexer': return [
+        { type: 'io', op: 'READ', path: '/docs/source.c', priority: 3 },
+        { type: 'io', op: 'READ', path: '/docs/config.json', priority: 3 },
+        { type: 'io', op: 'READ', path: '/docs/numbers.csv', priority: 3 },
+        { type: 'io', op: 'READ', path: '/docs/style.txt', priority: 3 },
+        { type: 'io', op: 'READ', path: '/docs/report.txt', priority: 3 },
+        { type: 'cpu', ticks: 2, compute: function (rt) {
+            rt.pending = 'index: config.json, numbers.csv, report.txt, source.c, style.txt (' +
+                         rt.buffer.length + ' bytes in last file)';
+            rt.result = 'indexed 5 files into /apps/index.txt';
+          } },
+        { type: 'io', op: 'WRITE', path: '/apps/index.txt', priority: 3 },
+        { type: 'cpu', ticks: 1 }
+      ];
+      case 'system-monitor': return [
+        { type: 'cpu', ticks: 2, compute: function (rt, fs) {
+            var snapshot = 'simulated kernel snapshot: files=' + Object.keys(fs.files).length +
+                           ' directories=' + Object.keys(fs.dirs).length +
+                           ' used-blocks=' + fsUsed(fs) + '/' + fs.total;
+            rt.pending = snapshot;
+            rt.result = snapshot;
+          } },
+        { type: 'io', op: 'WRITE', path: '/apps/monitor.txt', priority: 2 },
+        { type: 'cpu', ticks: 1 }
+      ];
+    }
+    return [];
+  }
+  function applyBurst(steps, burst) {
+    var totalCpu = 0, last = -1;
+    steps.forEach(function (s, i) { if (s.type === 'cpu') { totalCpu += s.ticks; last = i; } });
+    if (!burst || burst < 1 || totalCpu < 1 || burst === totalCpu) return steps;
+    var used = 0;
+    steps.forEach(function (s, i) {
+      if (s.type !== 'cpu' || i === last) return;
+      s.ticks = Math.max(1, Math.round(s.ticks * burst / totalCpu));
+      used += s.ticks;
+    });
+    if (last >= 0) steps[last].ticks = Math.max(1, burst - used);
+    return steps;
+  }
+  function makeApp(kind, pid, overrides) {
+    overrides = overrides || {};
+    var info = KIND_INFO[kind] || KIND_INFO.calculator;
+    var steps = stepsFor(kind);
+    var syscalls = steps.filter(function (step) { return step.type === 'io'; }).length;
+    if (overrides.burst) {
+      // The published burst includes the one-tick file system calls.
+      applyBurst(steps, Math.max(1, overrides.burst - syscalls));
+    }
+    var cpuWork = 0;
+    steps.forEach(function (s) { if (s.type === 'cpu') cpuWork += s.ticks; });
+    return {
+      pid: pid, kind: kind, name: overrides.name || info.label,
+      priority: overrides.priority || 3,
+      arrival: overrides.arrival === undefined ? 0 : overrides.arrival,
+      memory: overrides.memory || info.mem,
+      resources: info.res.slice(), steps: steps,
+      cpuWork: cpuWork, burst: cpuWork + syscalls, out: info.out, alloc: info.alloc
+    };
+  }
+  function catalog() {
+    return [
+      makeApp('calculator', 1, { priority: 1, arrival: 0 }),
+      makeApp('text-editor', 2, { priority: 2, arrival: 0 }),
+      makeApp('counter', 3, { priority: 3, arrival: 0 }),
+      makeApp('file-search', 4, { priority: 2, arrival: 2 }),
+      makeApp('file-analyzer', 5, { priority: 3, arrival: 1 }),
+      makeApp('file-copy', 6, { priority: 1, arrival: 4 }),
+      makeApp('indexer', 7, { priority: 3, arrival: 3 }),
+      makeApp('system-monitor', 8, { priority: 2, arrival: 5 })
+    ];
+  }
+
+  // ---- memory and resource model --------------------------------------------
+  function newMemory(capacity) { return [{ start: 0, size: capacity, pid: 0 }]; }
+  function memAllocate(regions, pid, size) {
+    for (var i = 0; i < regions.length; i++) {
+      var r = regions[i];
+      if (r.pid !== 0 || r.size < size) continue;
+      if (r.size === size) { r.pid = pid; return true; }
+      regions.splice(i, 1, { start: r.start, size: size, pid: pid },
+                      { start: r.start + size, size: r.size - size, pid: 0 });
+      return true;
+    }
+    return false;
+  }
+  function memRelease(regions, pid) {
+    var released = false;
+    regions.forEach(function (r) { if (r.pid === pid) { r.pid = 0; released = true; } });
+    for (var i = 1; i < regions.length; ) {
+      if (regions[i - 1].pid === 0 && regions[i].pid === 0) {
+        regions[i - 1].size += regions[i].size;
+        regions.splice(i, 1);
+      } else i++;
+    }
+    return released;
+  }
+  // Policy-aware contiguous allocation used by the comparison and the
+  // interactive allocator. policy: 'First Fit' | 'Best Fit' | 'Worst Fit'
+  // (or 'first' | 'best' | 'worst').
+  function memoryAllocate(regions, pid, size, policy) {
+    if (!(pid > 0) || !(size > 0)) return false;
+    var candidates = [];
+    regions.forEach(function (region, index) {
+      if (region.pid === 0 && region.size >= size) candidates.push(index);
+    });
+    if (!candidates.length) return false;
+    var index = candidates[0];
+    candidates.forEach(function (candidate) {
+      if (policy === 'Best Fit' || policy === 'best') {
+        if (regions[candidate].size < regions[index].size) index = candidate;
+      } else if (policy === 'Worst Fit' || policy === 'worst') {
+        if (regions[candidate].size > regions[index].size) index = candidate;
+      }
+    });
+    var hole = regions[index];
+    if (hole.size === size) hole.pid = pid;
+    else {
+      regions.splice(index, 1,
+        { start: hole.start, size: size, pid: pid },
+        { start: hole.start + size, size: hole.size - size, pid: 0 });
+    }
+    return true;
+  }
+  function memoryUsed(regions) {
+    return regions.filter(function (r) { return r.pid !== 0; })
+                  .reduce(function (sum, r) { return sum + r.size; }, 0);
+  }
+  function memoryFree(regions) {
+    return regions.filter(function (r) { return r.pid === 0; })
+                  .reduce(function (sum, r) { return sum + r.size; }, 0);
+  }
+  function memoryLargestHole(regions) {
+    return regions.reduce(function (best, r) {
+      return r.pid === 0 ? Math.max(best, r.size) : best;
+    }, 0);
+  }
+
+  // ---- I/O request scheduling ----------------------------------------------
+  function pickRequest(requests, policy, now) {
+    now = now === undefined ? 1e9 : now;
+    var best = -1;
+    for (var i = 0; i < requests.length; i++) {
+      var r = requests[i];
+      if (r.status !== 'PENDING' || r.submitted > now) continue;
+      if (best < 0) { best = i; continue; }
+      var c = requests[best], better;
+      if (policy === 'priority' && r.priority !== c.priority) better = r.priority < c.priority;
+      else if (r.submitted !== c.submitted) better = r.submitted < c.submitted;
+      else better = r.id < c.id;
+      if (better) best = i;
+    }
+    if (best < 0) return { index: -1, reason: '' };
+    var chosen = requests[best], rivals = [];
+    for (var k = 0; k < requests.length; k++)
+      if (k !== best && requests[k].status === 'PENDING' && requests[k].submitted <= now &&
+          requests[k].priority === chosen.priority) rivals.push(requests[k].id);
+    var reason;
+    if (policy === 'fcfs') {
+      reason = 'request #' + chosen.id + ' (' + chosen.op + ' ' + chosen.path + ', P' + chosen.pid +
+        ') selected: FCFS serves requests in submission order; it was submitted at t=' + chosen.submitted +
+        ' before every other pending request.';
+    } else {
+      reason = 'request #' + chosen.id + ' (' + chosen.op + ' ' + chosen.path + ', P' + chosen.pid +
+        ' priority ' + chosen.priority + ') selected: lowest priority number among pending requests' +
+        (rivals.length ? ' (equal priority with #' + rivals.join(', #') +
+          '; tie broken by submission time, then request ID)' : '; no pending request has a better priority') + '.';
+    }
+    return { index: best, reason: reason };
+  }
+  function serviceTicks(bytes) { return Math.max(1, Math.ceil((bytes || 1) / 16)); }
+  function requestStats(requests) {
+    var completed = 0, failed = 0, total = 0, max = 0;
+    requests.forEach(function (r) {
+      if (r.status === 'COMPLETED') completed++;
+      if (r.status === 'FAILED') failed++;
+      if (r.completed >= 0) { total += r.wait; if (r.wait > max) max = r.wait; }
+    });
+    return { completed: completed, failed: failed, totalWait: total, maxWait: max,
+             averageWait: completed + failed ? total / (completed + failed) : 0 };
+  }
+  function simulateRequests(base, policy) {
+    var requests = base.map(function (r) { return Object.assign({}, r); });
+    requests.forEach(function (r, i) {
+      r.id = i + 1; r.status = 'PENDING'; r.started = -1; r.completed = -1;
+      r.order = 0; r.wait = 0; r.remaining = r.serviceTicks;
+    });
+    var time = 0, order = 0, done = 0, log = [];
+    while (done < requests.length) {
+      var choice = pickRequest(requests, policy, time);
+      if (choice.index < 0) { time++; continue; }
+      var request = requests[choice.index];
+      request.status = 'SERVING';
+      request.started = time;
+      request.order = ++order;
+      log.push({ t: time, text: choice.reason });
+      time += request.serviceTicks;
+      request.completed = time;
+      request.wait = time - request.submitted;
+      request.status = 'COMPLETED';
+      done++;
+    }
+    requests.forEach(function (request) {
+      request.depth = 1 + requests.filter(function (other) {
+        return other !== request && other.submitted <= request.submitted &&
+               (other.completed < 0 || other.completed > request.submitted);
+      }).length;
+    });
+    return { requests: requests, log: log, stats: requestStats(requests) };
+  }
+  function demoRequests() {
+    var base = [
+      { pid: 7, app: 'background-indexer', op: 'READ', path: '/docs/source.c', destination: '', priority: 3, submitted: 0, serviceTicks: 2 },
+      { pid: 7, app: 'background-indexer', op: 'READ', path: '/docs/config.json', destination: '', priority: 3, submitted: 0, serviceTicks: 4 },
+      { pid: 7, app: 'background-indexer', op: 'READ', path: '/docs/numbers.csv', destination: '', priority: 3, submitted: 0, serviceTicks: 3 },
+      { pid: 7, app: 'background-indexer', op: 'READ', path: '/docs/style.txt', destination: '', priority: 3, submitted: 1, serviceTicks: 2 },
+      { pid: 7, app: 'background-indexer', op: 'READ', path: '/docs/report.txt', destination: '', priority: 3, submitted: 1, serviceTicks: 5 },
+      { pid: 2, app: 'text-editor', op: 'WRITE', path: '/apps/notes.txt', destination: '', priority: 1, submitted: 2, serviceTicks: 2 },
+      { pid: 4, app: 'file-search', op: 'READ', path: '/docs/system.log', destination: '', priority: 2, submitted: 3, serviceTicks: 6 }
+    ];
+    return base.map(function (r, i) {
+      return Object.assign({}, r, { id: i + 1, status: 'PENDING', started: -1, completed: -1,
+                                    order: 0, wait: 0, remaining: r.serviceTicks, blocks: r.serviceTicks });
+    });
+  }
+
+  // ---- the simulated kernel --------------------------------------------------
+  function runKernel(specs, options) {
+    options = options || {};
+    if (!specs || !specs.length) throw new Error('at least one application is required');
+    var seenPids = {};
+    specs.forEach(function (spec) {
+      if (!spec || APP_KINDS.indexOf(spec.kind) < 0)
+        throw new Error('unknown application kind: ' + (spec && spec.kind));
+      if (!(spec.pid > 0)) throw new Error('application PID must be positive');
+      if (seenPids[spec.pid]) throw new Error('duplicate application PID ' + spec.pid);
+      seenPids[spec.pid] = true;
+    });
+    var fs = options.fs
+      ? cloneFs(options.fs)
+      : (options.samples && options.samples.length
+          ? fsFromSamples(options.samples, options.totalBlocks || 128)
+          : seedFs(newFs(options.totalBlocks || 128)));
+    var memory = newMemory(options.memory || 96);
+    var available = [8, 6, 6];
+    var cpuPolicy = options.cpu || 'priority';
+    var ioPolicy = options.io || 'priority';
+    var runtimes = specs.map(function (spec) {
+      var app = makeApp(spec.kind, spec.pid, {
+        name: spec.name, priority: spec.priority, arrival: spec.arrival,
+        memory: spec.memory, burst: spec.burst
+      });
+      return {
+        app: app, pid: app.pid, name: app.name, kind: app.kind,
+        priority: app.priority, arrival: app.arrival, memoryUnits: app.memory,
+        state: 'NEW', admitted: false, step: 0, remaining: 0,
+        buffer: '', pending: '', result: '', ioWait: 0, ioStart: -1,
+        cpuTicks: 0, dispatches: 0, response: -1, finish: -1,
+        startTime: -1, cpuBeforeIo: 0, lastBlocks: [], done: false
+      };
+    });
+    var requests = [], gantt = [], decisions = [], transitions = [], snapshots = [];
+    var time = 0, running = -1, device = -1, ioOrder = 0, busy = 0, dispatches = 0, nextId = 1;
+    var completed = 0;
+    var killPlan = {};
+    (options.kills || []).forEach(function (kill) {
+      killPlan[kill.pid + ':' + kill.at] = true;
+    });
+
+    function logDecision(text) { decisions.push({ t: time, text: text }); }
+    function change(rt, next, reason, at) {
+      if (rt.state === next) return;
+      transitions.push({ t: at === undefined ? time : at, pid: rt.pid, from: rt.state, to: next, reason: reason });
+      rt.state = next;
+    }
+    function bestReady() {
+      var best = -1;
+      for (var i = 0; i < runtimes.length; i++) {
+        var rt = runtimes[i];
+        if (rt.state !== 'READY') continue;
+        if (best < 0) { best = i; continue; }
+        var c = runtimes[best];
+        var better = cpuPolicy === 'fcfs'
+          ? (rt.arrival < c.arrival || (rt.arrival === c.arrival && rt.pid < c.pid))
+          : (rt.priority < c.priority ||
+             (rt.priority === c.priority && rt.arrival < c.arrival) ||
+             (rt.priority === c.priority && rt.arrival === c.arrival && rt.pid < c.pid));
+        if (better) best = i;
+      }
+      return best;
+    }
+    function reasonFor(index) {
+      var chosen = runtimes[index], rivals = [];
+      for (var i = 0; i < runtimes.length; i++) {
+        if (i === index || runtimes[i].state !== 'READY') continue;
+        rivals.push(runtimes[i]);
+      }
+      var text = 'P' + chosen.pid + ' (' + chosen.name + ', priority ' + chosen.priority + ')';
+      if (!rivals.length) return text + ' selected: it was the only READY process';
+      text += ' selected over ' + rivals.map(function (rt) {
+        return 'P' + rt.pid + ' (priority ' + rt.priority + ')';
+      }).join(', ');
+      if (cpuPolicy === 'fcfs') text += ': earliest arrival time in READY';
+      else {
+        text += ': lowest priority number in READY';
+        var ties = rivals.filter(function (rt) { return rt.priority === chosen.priority; });
+        if (ties.length) text += '; the tie at priority ' + chosen.priority +
+          ' is broken by earlier arrival time, then lower PID';
+      }
+      return text;
+    }
+    function snapshot() {
+      snapshots.push({
+        time: time,
+        cpu: running >= 0 ? runtimes[running].pid : 0,
+        procs: runtimes.map(function (rt) {
+          return { pid: rt.pid, name: rt.name, state: rt.state, step: rt.step,
+                   steps: rt.app.steps.length, remaining: rt.remaining,
+                   ioWait: rt.ioWait, result: rt.result, finish: rt.finish,
+                   response: rt.response, dispatches: rt.dispatches, done: rt.done,
+                   priority: rt.priority, arrival: rt.arrival, burst: rt.app.burst,
+                   cpu: rt.cpuTicks, killed: rt.killed || false };
+        }),
+        memory: JSON.parse(JSON.stringify(memory)),
+        pending: requests.filter(function (r) { return r.status === 'PENDING'; }).map(function (r) {
+          return { id: r.id, pid: r.pid, app: r.app, op: r.op, path: r.path, priority: r.priority,
+                   submitted: r.submitted, serviceTicks: r.serviceTicks, remaining: r.remaining };
+        }),
+        serving: device >= 0 ? requests[device].id : 0,
+        servingRequest: device >= 0 ? {
+          id: requests[device].id, pid: requests[device].pid, app: requests[device].app,
+          op: requests[device].op, path: requests[device].path,
+          priority: requests[device].priority, submitted: requests[device].submitted,
+          remaining: requests[device].remaining, serviceTicks: requests[device].serviceTicks
+        } : null,
+        decisions: decisions.filter(function (d) { return d.t === time; }),
+        dispatches: dispatches,
+        cpuBusy: busy,
+        blocksUsed: fsUsed(fs),
+        blocksTotal: fs.total
+      });
+    }
+    function execute(request) {
+      var rt = null;
+      runtimes.forEach(function (r) { if (r.pid === request.pid) rt = r; });
+      try {
+        if (request.op === 'READ') {
+          request.payload = fsRead(fs, request.path);
+          rt.buffer = request.payload;
+          request.blocks = fs.files[normalise(request.path)].blocks.length;
+          rt.lastBlocks = fs.files[normalise(request.path)].blocks.slice();
+          request.note = request.payload.length + ' byte(s) read';
+        } else if (request.op === 'WRITE') {
+          var data = request.payload !== undefined && request.payload !== '' ? request.payload : rt.pending;
+          if (!fsWrite(fs, request.path, data, rt.app.alloc)) throw new Error('file system refused the write');
+          request.blocks = fs.files[normalise(request.path)].blocks.length;
+          rt.lastBlocks = fs.files[normalise(request.path)].blocks.slice();
+          request.note = data.length + ' byte(s) written';
+        } else if (request.op === 'COPY') {
+          if (!fsCopy(fs, request.path, request.destination, rt.app.alloc)) throw new Error('file system refused the copy');
+          request.blocks = fs.files[normalise(request.path)].blocks.length +
+                           fs.files[normalise(request.destination)].blocks.length;
+          rt.lastBlocks = fs.files[normalise(request.destination)].blocks.slice();
+          request.note = 'copied to ' + request.destination;
+        }
+        request.status = 'COMPLETED';
+        request.ok = true;
+      } catch (error) {
+        request.status = 'FAILED';
+        request.ok = false;
+        request.note = error.message;
+        if (!rt.result) rt.result = 'I/O failed: ' + error.message;
+      }
+    }
+    function terminate(rt) {
+      rt.finish = time + 1;
+      rt.done = true;
+      change(rt, 'TERMINATED', 'program finished; resources released', time + 1);
+      memRelease(memory, rt.pid);
+      for (var j = 0; j < 3; j++) available[j] += rt.app.resources[j];
+      completed++;
+    }
+    snapshot(); // t = 0 baseline
+
+    while (completed < runtimes.length && time < 3000) {
+      // user-initiated termination (deterministic kill plan)
+      for (var k = 0; k < runtimes.length; k++) {
+        var victim = runtimes[k];
+        if (victim.done || !killPlan[victim.pid + ':' + time]) continue;
+        for (var r = 0; r < requests.length; r++) {
+          var pending = requests[r];
+          if (pending.pid !== victim.pid) continue;
+          if (pending.status === 'PENDING' || pending.status === 'SERVING') {
+            pending.status = 'FAILED';
+            pending.note = 'cancelled: process terminated';
+            pending.completed = time;
+            if (device === r) device = -1;
+          }
+        }
+        if (running === k) running = -1;
+        victim.killed = true;
+        victim.done = true;
+        victim.finish = time;
+        victim.result = 'terminated by the user at t=' + time;
+        change(victim, 'TERMINATED', 'terminated by the user', time);
+        if (victim.admitted) {
+          memRelease(memory, victim.pid);
+          for (var j = 0; j < 3; j++) available[j] += victim.app.resources[j];
+        }
+        completed++;
+      }
+      // admission
+      for (var i = 0; i < runtimes.length; i++) {
+        var rt = runtimes[i];
+        if (rt.admitted || rt.state !== 'NEW' || rt.arrival > time) continue;
+        if (!memAllocate(memory, rt.pid, rt.memoryUnits)) continue;
+        var fits = true;
+        for (var j = 0; j < 3; j++) if (rt.app.resources[j] > available[j]) fits = false;
+        if (!fits) { memRelease(memory, rt.pid); continue; }
+        for (var k = 0; k < 3; k++) available[k] -= rt.app.resources[k];
+        rt.admitted = true;
+        rt.step = 0;
+        rt.remaining = rt.app.steps[0].type === 'cpu' ? rt.app.steps[0].ticks : 1;
+        change(rt, 'READY', 'admitted by the kernel', time);
+      }
+      // dispatch
+      var challenger = bestReady();
+      if (running >= 0 && challenger >= 0 && cpuPolicy === 'priority') {
+        if (runtimes[challenger].priority < runtimes[running].priority) {
+          logDecision('P' + runtimes[challenger].pid + ' (priority ' + runtimes[challenger].priority +
+            ') preempts P' + runtimes[running].pid + ' (priority ' + runtimes[running].priority +
+            ') because a higher-priority process became READY');
+          change(runtimes[running], 'READY', 'preempted by higher-priority process', time);
+          running = -1;
+        }
+      }
+      if (running < 0) {
+        var chosen = bestReady();
+        if (chosen >= 0) {
+          running = chosen;
+          var chosenRt = runtimes[chosen];
+          if (chosenRt.response < 0) chosenRt.response = time - chosenRt.arrival;
+          chosenRt.dispatches++;
+          dispatches++;
+          logDecision(reasonFor(chosen));
+          change(chosenRt, 'RUNNING', 'dispatched', time);
+        }
+      }
+      // cpu
+      if (running < 0) {
+        gantt.push(null);
+      } else {
+        var current = runtimes[running];
+        gantt.push(current.pid);
+        current.cpuTicks++;
+        busy++;
+        current.remaining--;
+        if (current.remaining <= 0) {
+          var step = current.app.steps[current.step];
+          if (step.type === 'cpu') {
+            if (step.compute) step.compute(current, fs);
+            current.step++;
+            if (current.step >= current.app.steps.length) {
+              terminate(current);
+              running = -1;
+            } else {
+              var next = current.app.steps[current.step];
+              current.remaining = next.type === 'cpu' ? next.ticks : 1;
+            }
+          } else {
+            // issue the system call
+            var bytes = 0;
+            if (step.op === 'WRITE') bytes = current.pending.length;
+            else if (fs.files[normalise(step.path)]) bytes = fs.files[normalise(step.path)].contents.length;
+            var request = {
+              id: nextId++, pid: current.pid, app: current.name, op: step.op,
+              path: step.path, destination: step.destination || '', priority: step.priority,
+              submitted: time + 1, serviceTicks: serviceTicks(bytes), remaining: 0,
+              started: -1, completed: -1, order: 0, blocks: 0, status: 'PENDING',
+              ok: true, note: '', payload: step.data || '', wait: 0
+            };
+            request.remaining = request.serviceTicks;
+            request.depth = 1 + requests.filter(function (other) {
+              return other.status === 'PENDING';
+            }).length;
+            requests.push(request);
+            current.ioStart = time + 1;
+            change(current, 'WAITING', 'blocked on file I/O request #' + request.id, time + 1);
+            current.step++;
+            running = -1;
+          }
+        }
+      }
+      // device
+      if (device < 0) {
+        var choice = pickRequest(requests, ioPolicy, time);
+        if (choice.index >= 0) {
+          device = choice.index;
+          requests[device].status = 'SERVING';
+          requests[device].started = time;
+          requests[device].order = ++ioOrder;
+          logDecision(choice.reason);
+        }
+      }
+      if (device >= 0) {
+        var serving = requests[device];
+        serving.remaining--;
+        if (serving.remaining <= 0) {
+          serving.completed = time + 1;
+          execute(serving);
+          var owner = null;
+          runtimes.forEach(function (r) { if (r.pid === serving.pid) owner = r; });
+          owner.ioWait += time + 1 - owner.ioStart;
+          device = -1;
+          if (owner.step >= owner.app.steps.length) {
+            terminate(owner);
+          } else {
+            var follow = owner.app.steps[owner.step];
+            owner.remaining = follow.type === 'cpu' ? follow.ticks : 1;
+            change(owner, 'READY', 'I/O complete for request #' + serving.id, time + 1);
+          }
+        }
+      }
+      time++;
+      snapshot();
+    }
+    runtimes.forEach(function (rt) {
+      if (!rt.done && rt.state !== 'TERMINATED') rt.stuck = true;
+    });
+    var diskLane = new Array(time).fill(0);
+    requests.forEach(function (r) {
+      if (r.started < 0 || r.completed < 0) return;
+      for (var t = r.started; t < r.completed && t < time; t++) diskLane[t] = r.pid;
+    });
+    return {
+      runtimes: runtimes, requests: requests, gantt: gantt, decisions: decisions,
+      transitions: transitions, snapshots: snapshots, fs: fs, elapsed: time,
+      busy: busy, dispatches: dispatches, memory: memory, available: available,
+      cpuPolicy: cpuPolicy, ioPolicy: ioPolicy, diskLane: diskLane
+    };
+  }
+
+  // ---- user-initiated termination -------------------------------------------
+  // A kill is part of the deterministic plan: the run is recomputed with the
+  // termination applied at the requested tick, so the timeline never contradicts
+  // itself.
+  function killKey(pid, at) { return pid + ':' + at; }
+
+  // ---- deadlock: detection and recovery -------------------------------------
+  function deadlockSample() {
+    return {
+      available: [0, 0],
+      allocation: [[1, 0], [0, 1], [0, 0]],
+      request: [[0, 1], [1, 0], [0, 0]]
+    };
+  }
+  function cloneDeadlock(state) {
+    return {
+      available: state.available.slice(),
+      allocation: state.allocation.map(function (row) { return row.slice(); }),
+      request: state.request.map(function (row) { return row.slice(); })
+    };
+  }
+  function deadlockDetect(input) {
+    var state = cloneDeadlock(input);
+    var work = state.available.slice();
+    var finished = state.allocation.map(function (row) {
+      return row.every(function (units) { return units === 0; });
+    });
+    var order = [], trace = [], progress = true;
+    while (progress) {
+      progress = false;
+      for (var i = 0; i < state.allocation.length; i++) {
+        if (finished[i]) continue;
+        var canFinish = state.request[i].every(function (units, j) { return units <= work[j]; });
+        if (!canFinish) continue;
+        var before = work.slice();
+        state.allocation[i].forEach(function (units, j) { work[j] += units; });
+        finished[i] = true;
+        order.push(i);
+        progress = true;
+        trace.push({ pid: i, before: before, after: work.slice(),
+                     released: state.allocation[i].slice() });
+      }
+    }
+    var deadlocked = [];
+    finished.forEach(function (done, i) { if (!done) deadlocked.push(i); });
+    return { deadlocked: deadlocked, order: order, trace: trace, work: work };
+  }
+  function deadlockRecover(input, policy) {
+    var detection = deadlockDetect(input);
+    if (!detection.deadlocked.length) {
+      return { state: cloneDeadlock(input), detection: detection, victim: -1, after: detection };
+    }
+    var victim = detection.deadlocked[0];
+    if (policy === 'least') {
+      var best = -1;
+      detection.deadlocked.forEach(function (pid) {
+        var held = input.allocation[pid].reduce(function (sum, units) { return sum + units; }, 0);
+        if (best < 0 || held < best) { best = held; victim = pid; }
+      });
+    }
+    var next = cloneDeadlock(input);
+    next.available = next.available.map(function (units, j) {
+      return units + next.allocation[victim][j];
+    });
+    next.allocation[victim] = next.allocation[victim].map(function () { return 0; });
+    next.request[victim] = next.request[victim].map(function () { return 0; });
+    return { state: next, detection: detection, victim: victim, after: deadlockDetect(next) };
+  }
+
+  // ---- semaphores, classical problems ---------------------------------------
+  function Semaphore(value) { this.value = value; this.blocked = []; }
+  Semaphore.prototype.wait = function (name) {
+    if (this.value > 0) { this.value--; return true; }
+    this.blocked.push(name);
+    return false;
+  };
+  Semaphore.prototype.signal = function () {
+    if (this.blocked.length) return this.blocked.shift();
+    this.value++;
+    return '';
+  };
+
+  function semaphoreTrace() {
+    var gate = new Semaphore(1), steps = [];
+    steps.push('Counting semaphore S=1 (a binary mutex in this example).');
+    steps.push('P1 wait(S): granted, S=' + (gate.wait('P1'), gate.value) + ', critical section entered.');
+    var p2 = gate.wait('P2');
+    steps.push('P2 wait(S): ' + (p2 ? 'granted' : 'BLOCKED and queued behind P1') + ', S=' + gate.value + '.');
+    var woken = gate.signal();
+    steps.push('P1 signal(S): ' + (woken ? 'hands the permit directly to ' + woken : 'S=' + gate.value) +
+               '; P1 leaves the critical section.');
+    steps.push('P2 leaves the critical section and signals; S=' + (gate.signal(), gate.value) + '.');
+    return steps;
+  }
+
+  function producerConsumerTrace() {
+    var empty = new Semaphore(2), full = new Semaphore(0), mutex = new Semaphore(1);
+    var buffer = [], steps = [], step = 0;
+    function note(text) {
+      steps.push('Step ' + (++step) + ': ' + text + ' | buffer=[' + buffer.join(',') +
+                 '] empty=' + empty.value + ' full=' + full.value + ' mutex=' + mutex.value);
+    }
+    note('initial state');
+    function consume(name, handed) {
+      if (!handed && !full.wait(name)) { note(name + ' BLOCKED: buffer empty'); return ''; }
+      if (!buffer.length) throw new Error('a full-slot permit has no item');
+      if (!mutex.wait(name)) throw new Error('simulated mutex unexpectedly busy');
+      var item = buffer.shift();
+      note(name + ' consumes ' + item);
+      mutex.signal();
+      var woken = empty.signal();
+      note(name + ' signals empty' + (woken ? '; wakes ' + woken : ''));
+      return woken;
+    }
+    function produce(name, item, handed) {
+      if (!handed && !empty.wait(name)) { note(name + ' BLOCKED: buffer full'); return ''; }
+      if (!mutex.wait(name)) throw new Error('simulated mutex unexpectedly busy');
+      buffer.push(item);
+      note(name + ' produces ' + item);
+      mutex.signal();
+      var woken = full.signal();
+      note(name + ' signals full' + (woken ? '; wakes ' + woken : ''));
+      return woken;
+    }
+    consume('C1', false);
+    var woken = produce('P1', 10, false);
+    if (woken === 'C1') consume('C1', true);
+    produce('P1', 20, false);
+    produce('P1', 30, false);
+    produce('P2', 40, false);
+    woken = consume('C2', false);
+    if (woken === 'P2') produce('P2', 40, true);
+    consume('C2', false);
+    consume('C2', false);
+    steps.push('Bounded-buffer invariant held: 0 <= buffer <= 2, no overflow or underflow.');
+    return steps;
+  }
+
+  function diningTrace() {
+    var steps = [];
+    function tryTake(forks, pid, fork, waits, names) {
+      if (forks[fork] === -1) {
+        forks[fork] = pid;
+        steps.push('P' + pid + ' takes fork ' + fork + (names ? ' (' + names[fork] + ')' : '') + '.');
+        return true;
+      }
+      waits.push({ pid: pid, fork: fork, owner: forks[fork] });
+      steps.push('P' + pid + ' BLOCKED on fork ' + fork + ' (held by P' + forks[fork] + ').');
+      return false;
+    }
+    function cycle(waits) {
+      var graph = {};
+      waits.forEach(function (wait) { graph[wait.pid] = wait.owner; });
+      Object.keys(graph).forEach(function (start) {
+        var seen = {}, node = Number(start);
+        while (graph[node] !== undefined) {
+          if (seen[node]) return;
+          seen[node] = true;
+          node = graph[node];
+          if (seen[node]) { graph.__cycle = true; }
+        }
+      });
+      return !!graph.__cycle;
+    }
+
+    steps.push('Unsafe policy: every philosopher takes the left fork first.');
+    var forks = [-1, -1, -1, -1, -1], waits = [];
+    for (var p = 0; p < 5; p++) tryTake(forks, p, p, waits, null);
+    for (p = 0; p < 5; p++) tryTake(forks, p, (p + 1) % 5, waits, null);
+    steps.push(cycle(waits)
+      ? 'Wait-for cycle detected among the five philosophers: DEADLOCK.'
+      : 'No cycle detected (unexpected).');
+
+    steps.push('');
+    steps.push('Safe policy: each philosopher takes the lower-numbered fork first.');
+    forks = [-1, -1, -1, -1, -1];
+    var allAte = true;
+    for (p = 0; p < 5; p++) {
+      var left = p, right = (p + 1) % 5;
+      var first = Math.min(left, right), second = Math.max(left, right);
+      var gotFirst = tryTake(forks, p, first, [], null);
+      var gotSecond = gotFirst && tryTake(forks, p, second, [], null);
+      if (gotFirst && gotSecond) {
+        steps.push('P' + p + ' eats, then releases forks ' + first + ' and ' + second + '.');
+        forks[first] = -1; forks[second] = -1;
+      } else allAte = false;
+    }
+    steps.push(allAte ? 'All five philosophers ate; global ordering prevents circular wait.'
+                      : 'Ordered acquisition failed (unexpected).');
+    return steps;
+  }
+
+  function petersonTrace() {
+    var flag = [false, false], turn = 0, steps = [];
+    steps.push('Two simulated threads share flag[2] and turn.');
+    flag[0] = true; turn = 1;
+    steps.push('T0 sets flag[0]=true and turn=1. flag[1]=' + flag[1] +
+               ' -> T0 enters the critical section.');
+    flag[1] = true; turn = 0;
+    var t1waits = flag[0] && turn === 0;
+    steps.push('T1 sets flag[1]=true and turn=0. flag[0]=' + flag[0] + ', turn=' + turn +
+               ' -> T1 ' + (t1waits ? 'waits' : 'enters') + '.');
+    flag[0] = false;
+    steps.push('T0 leaves and clears flag[0].');
+    var t1enters = flag[1] && (turn === 1 || !flag[0]);
+    steps.push(t1enters ? 'T1 now enters the critical section: at most one thread is inside.'
+                        : 'T1 still waits.');
+    flag[1] = false;
+    steps.push('T1 leaves and clears flag[1]. Mutual exclusion held.');
+
+    var tickets = [2, 1, 1, 3];
+    var order = [0, 1, 2, 3].sort(function (a, b) {
+      return tickets[a] - tickets[b] || a - b;
+    });
+    steps.push('Bakery tickets T0=2 T1=1 T2=1 T3=3 -> order ' +
+               order.map(function (t) { return 'T' + t; }).join(' -> ') +
+               ' (equal tickets break by thread id).');
+    return steps;
+  }
+
+  // ---- message passing and shared memory ------------------------------------
+  function ipcTrace() {
+    var capacity = 2, queue = [], steps = [];
+    function send(pid, text) {
+      if (queue.length === capacity) {
+        steps.push('P' + pid + ' sends "' + text + '": BLOCKED, message queue is full.');
+        return false;
+      }
+      queue.push({ pid: pid, text: text });
+      steps.push('P' + pid + ' sends "' + text + '": queued. Queue depth=' + queue.length + '.');
+      return true;
+    }
+    function receive() {
+      if (!queue.length) { steps.push('Receiver: queue empty, would block.'); return; }
+      var message = queue.shift();
+      steps.push('Receiver gets from P' + message.pid + ': "' + message.text +
+                 '". Queue depth=' + queue.length + '.');
+    }
+    send(1, 'compile /src/main.cpp');
+    send(2, 'status?');
+    send(3, 'extra');
+    receive();
+    receive();
+    receive();
+
+    var data = '', readers = [1, 2];
+    function write(pid, text) {
+      if (pid !== 1) { steps.push('P' + pid + ' write denied: it is not the shared-memory owner.'); return; }
+      data = text;
+      steps.push('P' + pid + ' writes shared memory: "' + data + '".');
+    }
+    function read(pid) {
+      if (readers.indexOf(pid) < 0) { steps.push('P' + pid + ' read denied: no permission.'); return; }
+      steps.push('P' + pid + ' reads shared memory: "' + data + '".');
+    }
+    steps.push('');
+    write(1, 'result=42');
+    read(2);
+    write(2, 'tampered');
+    read(3);
+    return steps;
+  }
+
+  // ---- TLB and working set ---------------------------------------------------
+  function tlbTrace() {
+    var pageTable = { '1:0': 4, '1:1': 9 }, capacity = 2, tlb = [], clock = 0, steps = [];
+    steps.push('Page size 100. Page table: P1 page 0 -> frame 4, page 1 -> frame 9. TLB capacity 2.');
+    [{ page: 0, offset: 12 }, { page: 0, offset: 35 }, { page: 1, offset: 4 },
+     { page: 2, offset: 0 }].forEach(function (access) {
+      clock++;
+      var hit = tlb.filter(function (entry) {
+        return entry.pid === 1 && entry.page === access.page;
+      })[0];
+      if (hit) {
+        hit.age = clock;
+        steps.push('Access P1:' + access.page + '+' + access.offset + ' -> TLB HIT, frame ' +
+                   hit.frame + ', physical address ' + (hit.frame * 100 + access.offset) + '.');
+        return;
+      }
+      var key = '1:' + access.page;
+      if (!(key in pageTable)) {
+        steps.push('Access P1:' + access.page + '+' + access.offset +
+                   ' -> TLB MISS and PAGE FAULT: the page is not resident.');
+        return;
+      }
+      if (tlb.length === capacity) {
+        tlb.sort(function (a, b) { return a.age - b.age; });
+        steps.push('TLB full: evict P' + tlb[0].pid + ' page ' + tlb[0].page + ' (LRU).');
+        tlb.shift();
+      }
+      tlb.push({ pid: 1, page: access.page, frame: pageTable[key], age: clock });
+      steps.push('Access P1:' + access.page + '+' + access.offset +
+                 ' -> TLB MISS, page-table lookup gives frame ' + pageTable[key] +
+                 ', physical address ' + (pageTable[key] * 100 + access.offset) + '.');
+    });
+    return steps;
+  }
+  function workingSet(refs, window, frames) {
+    var rows = [], thrashing = false;
+    for (var end = 0; end < refs.length; end++) {
+      var begin = Math.max(0, end + 1 - window), pages = [];
+      for (var i = begin; i <= end; i++)
+        if (pages.indexOf(refs[i]) < 0) pages.push(refs[i]);
+      var pressure = pages.length > frames;
+      thrashing = thrashing || pressure;
+      rows.push({ t: end + 1, pages: pages, pressure: pressure });
+    }
+    return { rows: rows, thrashing: thrashing };
+  }
+
+  // ---- process lifecycle and thread models -----------------------------------
+  function lifecycleTrace() {
+    var processes = [
+      { pid: 1, name: 'editor', state: 'NEW', burst: 5, priority: 1 },
+      { pid: 2, name: 'compiler', state: 'NEW', burst: 8, priority: 2 }
+    ];
+    var steps = [], time = 0;
+    function move(pid, next, reason) {
+      var process = processes.filter(function (p) { return p.pid === pid; })[0];
+      if (process.state === next) return;
+      steps.push('[t=' + time + '] P' + pid + ' (' + process.name + '): ' + process.state +
+                 ' → ' + next + ' (' + reason + ')');
+      process.state = next;
+    }
+    move(1, 'READY', 'created by the kernel');
+    move(2, 'READY', 'created by the kernel');
+    move(1, 'RUNNING', 'dispatcher selects the higher-priority editor');
+    time = 2;
+    move(1, 'WAITING', 'requests a simulated disk read');
+    time = 5;
+    move(1, 'READY', 'disk interrupt: I/O complete');
+    move(1, 'RUNNING', 'dispatcher resumes it');
+    time = 7;
+    move(2, 'TERMINATED', 'exits after its CPU slice');
+    time = 9;
+    move(1, 'TERMINATED', 'exits; memory and resources released');
+    steps.push('User mode calls readFile(); a trap switches to kernel mode, the kernel validates access, performs the I/O and returns.');
+    return steps;
+  }
+  function threadModelTrace() {
+    var steps = [], manyToOne = [{ id: 1, state: 'RUNNING' }, { id: 2, state: 'READY' }];
+    steps.push('Many-to-one: T1 and T2 share one kernel thread.');
+    manyToOne[0].state = 'BLOCKED';
+    manyToOne[1].state = 'BLOCKED';
+    steps.push('T1 blocks for I/O -> the shared kernel thread blocks, so T2 is ' +
+               manyToOne[1].state + ' too.');
+    var oneToOne = [{ id: 1, state: 'BLOCKED' }, { id: 2, state: 'RUNNING' }];
+    steps.push('One-to-one: each user thread has its own kernel thread.');
+    steps.push('T1 blocks for I/O -> T2 stays ' + oneToOne[1].state + ' and continues.');
+    steps.push('This illustration creates no real OS threads.');
+    return steps;
+  }
+
+  return {
+    APP_KINDS: APP_KINDS, KIND_INFO: KIND_INFO,
+    newFs: newFs, seedFs: seedFs, fsFromSamples: fsFromSamples, cloneFs: cloneFs,
+    fsWrite: fsWrite, fsRead: fsRead, fsDelete: fsDelete,
+    fsCopy: fsCopy, fsRename: fsRename, fsAppend: fsAppend, fsMkdir: fsMkdir,
+    fsMkdirs: fsMkdirs, fsUsed: fsUsed, fsFree: fsFree, normalise: normalise,
+    blocksFor: blocksFor, parentOf: parentOf,
+    memoryAllocate: memoryAllocate, memoryRelease: memRelease,
+    memoryUsed: memoryUsed, memoryFree: memoryFree, memoryLargestHole: memoryLargestHole,
+    stepsFor: stepsFor, makeApp: makeApp, catalog: catalog,
+    pickRequest: pickRequest, simulateRequests: simulateRequests, demoRequests: demoRequests,
+    requestStats: requestStats, serviceTicks: serviceTicks, runKernel: runKernel,
+    deadlockSample: deadlockSample, deadlockDetect: deadlockDetect,
+    deadlockRecover: deadlockRecover, killKey: killKey,
+    semaphoreTrace: semaphoreTrace, producerConsumerTrace: producerConsumerTrace,
+    diningTrace: diningTrace, petersonTrace: petersonTrace, ipcTrace: ipcTrace,
+    tlbTrace: tlbTrace, workingSet: workingSet,
+    lifecycleTrace: lifecycleTrace, threadModelTrace: threadModelTrace
+  };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = KernelCore;
+/* KERNEL-CORE:END */
+</script>
+<script src="js/samples.js"></script>
+<script src="js/selftest.js"></script>
 
 <script>
 function runQueueScheduler(input, algorithm) {
@@ -460,6 +1889,7 @@ function runQueueScheduler(input, algorithm) {
     if (running >= 0) {
       const runningLevel = levels[running];
       if (queues.slice(0, runningLevel).some(q => q.length)) {
+        log.push({ t: t, decision: 'P' + procs[running].pid + ' preempted: a process in a higher queue is ready.' });
         setState(running, 'READY', t);
         queues[runningLevel].unshift(running);
         running = -1;
@@ -472,6 +1902,9 @@ function runQueueScheduler(input, algorithm) {
       }
       if (running >= 0) {
         if (procs[running].response < 0) procs[running].response = t - procs[running].arrival;
+        log.push({ t: t, decision: 'P' + procs[running].pid + ' (' + procs[running].name +
+          ') selected from ' + (algorithm === 'MLQ' ? 'static queue ' : 'feedback queue ') +
+          levels[running] + ', the highest non-empty queue.' });
         setState(running, 'RUNNING', t); cs++; slice = 0;
       }
     }
@@ -516,6 +1949,24 @@ function runScheduler(input, algo, q) {
     }
     return best;
   };
+  const decisionText = idx => {
+    const chosen = procs[idx];
+    const rivals = ready.filter(i => i !== idx).map(i => procs[i]);
+    const label = algo === 'FCFS' ? 'earliest arrival time in the READY queue'
+      : algo === 'SJF' ? 'shortest total CPU burst in the READY queue'
+      : algo === 'SRTF' ? 'shortest remaining time in the READY queue'
+      : algo === 'PRIORITY' ? 'lowest priority number in the READY queue'
+      : 'front of the round-robin READY queue';
+    const tied = rivals.filter(p =>
+      algo === 'SJF' ? p.burst === chosen.burst
+      : algo === 'SRTF' ? p.remaining === chosen.remaining
+      : algo === 'PRIORITY' ? p.priority === chosen.priority
+      : p.arrival === chosen.arrival);
+    let text = 'P' + chosen.pid + ' (' + chosen.name + ') selected: ' + label;
+    if (rivals.length) text += ' among ' + [chosen].concat(rivals).map(p => 'P' + p.pid).join(', ');
+    if (tied.length) text += '; tie broken by earlier arrival time, then lower PID';
+    return text;
+  };
   while (done < n && t < 5000) {
     for (let i = 0; i < n; i++) if (procs[i].arrival === t) { setState(i, 'READY', t); ready.push(i); }
     if (running !== -1) {
@@ -526,10 +1977,16 @@ function runScheduler(input, algo, q) {
         preempt = algo === 'SRTF' ? c.remaining < r.remaining : c.priority < r.priority;
       }
       if (algo === 'RR' && slice >= q && !ready.length) slice = 0;
-      if (preempt) { setState(running, 'READY', t); ready.push(running); running = -1; }
+      if (preempt) {
+        const candidate = procs[ready[pick()]];
+        log.push({ t: t, decision: 'P' + procs[running].pid + ' preempted by P' + candidate.pid +
+          ' (' + (algo === 'SRTF' ? 'shorter remaining time' : 'better priority') + ').' });
+        setState(running, 'READY', t); ready.push(running); running = -1;
+      }
     }
     if (running === -1 && ready.length) {
       const pos = pick();
+      log.push({ t: t, decision: decisionText(ready[pos]) });
       running = ready[pos];
       ready.splice(pos, 1);
       setState(running, 'RUNNING', t);
@@ -643,7 +2100,7 @@ function bankRequest(s, pid, req) {
   const fmt = x => x.toFixed(2);
   const col = i => 'var(--p' + (i % COLORS) + ')';
 
-  const tabs = ['sched', 'page', 'bank', 'sync', 'disk', 'memory', 'process', 'deadlock', 'fs', 'integrated'];
+  const tabs = ['dash', 'apps', 'io', 'sched', 'page', 'bank', 'sync', 'disk', 'memory', 'process', 'deadlock', 'fs', 'integrated', 'selftest'];
   tabs.forEach(k => {
     $('tabbtn-' + k).addEventListener('click', () => {
       tabs.forEach(j => {
@@ -746,13 +2203,38 @@ function bankRequest(s, pid, req) {
     shown.forEach((e, i) => {
       const d = el('div', i === shown.length - 1 && !done ? 'last' : '');
       d.appendChild(el('span', 't', '[t=' + e.t + ']'));
-      d.appendChild(document.createTextNode('P' + e.pid + ' (' + e.name + '): '));
-      d.appendChild(el('span', 'st-' + e.from, e.from));
-      d.appendChild(document.createTextNode(' → '));
-      d.appendChild(el('span', 'st-' + e.to, e.to));
+      if (e.decision) {
+        d.appendChild(el('span', 'st-READY', 'scheduler: '));
+        d.appendChild(document.createTextNode(e.decision));
+      } else {
+        d.appendChild(document.createTextNode('P' + e.pid + ' (' + e.name + '): '));
+        d.appendChild(el('span', 'st-' + e.from, e.from));
+        d.appendChild(document.createTextNode(' → '));
+        d.appendChild(el('span', 'st-' + e.to, e.to));
+      }
       lg.appendChild(d);
     });
     lg.scrollTop = lg.scrollHeight;
+
+    const queues = $('sched-queues');
+    if (queues) {
+      queues.innerHTML = '';
+      const stateOf = idx => {
+        let state = 'NEW';
+        r.log.forEach(entry => {
+          if (!entry.decision && entry.idx === idx && entry.t <= tNow) state = entry.to;
+        });
+        return state;
+      };
+      const groups = { RUNNING: [], READY: [], WAITING: [], TERMINATED: [], NEW: [] };
+      r.procs.forEach((p, idx) => {
+        const state = stateOf(idx);
+        (groups[state] = groups[state] || []).push('P' + p.pid);
+      });
+      const line = ['RUNNING', 'READY', 'WAITING', 'TERMINATED']
+        .map(state => state + '=[' + (groups[state] || []).join(',') + ']').join('   ');
+      queues.appendChild(el('div', '', line));
+    }
   }
 
   function renderCompare() {
@@ -782,6 +2264,13 @@ function bankRequest(s, pid, req) {
     $('scrub').value = tNow; renderSched();
   });
   $('scrub').addEventListener('input', () => { stopPlay(); tNow = parseInt($('scrub').value, 10); renderSched(); });
+  $('step').addEventListener('click', () => {
+    stopPlay();
+    if (!result) return;
+    tNow = tNow >= result.total ? 0 : tNow + 1;
+    $('scrub').value = tNow;
+    renderSched();
+  });
   $('algo').addEventListener('change', () => recompute(true));
   $('quantum').addEventListener('input', () => recompute(true));
   $('add-proc').addEventListener('click', () => {
@@ -875,42 +2364,10 @@ function bankRequest(s, pid, req) {
     box.scrollTop = box.scrollHeight;
   }
 
-  function producerConsumerTrace() {
-    return [
-      'Initial: buffer=[] empty=2 full=0 mutex=1',
-      'C1 waits on full: BLOCKED (buffer empty)',
-      'P1 acquires empty and mutex; produces item 10',
-      'P1 signals full: wakes C1; permit is handed directly to C1',
-      'C1 consumes item 10; signals empty',
-      'P1 produces 20; P1 produces 30; buffer is full',
-      'P2 waits on empty: BLOCKED (buffer full)',
-      'C2 consumes item 20; signals empty: wakes P2',
-      'P2 uses the handed-off slot and produces item 40',
-      'Bounded-buffer invariant maintained; no overflow or underflow.'
-    ];
-  }
-  function diningTrace() {
-    return [
-      'Unsafe left-first policy:',
-      'P0..P4 each take their left fork.',
-      'Each waits for the next fork held by a neighbor: circular wait -> DEADLOCK.',
-      '',
-      'Fixed resource-order policy:',
-      'Every philosopher takes the lower-numbered fork first, then the higher one.',
-      'A circular wait cannot form; all five can eat and release their forks.'
-    ];
-  }
-  function petersonTrace() {
-    return [
-      'T0 sets flag[0]=true and turn=1; enters the critical section.',
-      'T1 sets flag[1]=true and turn=0; waits while T0 is interested.',
-      'T0 exits and clears flag[0].',
-      'T1 enters next. The interleaving has at most one critical-section owner.'
-    ];
-  }
-  $('pc-run').addEventListener('click', () => showLog('sync-log', producerConsumerTrace()));
-  $('dining-run').addEventListener('click', () => showLog('sync-log', diningTrace()));
-  $('peterson-run').addEventListener('click', () => showLog('sync-log', petersonTrace()));
+  $('pc-run').addEventListener('click', () => showLog('sync-log', KernelCore.producerConsumerTrace()));
+  $('dining-run').addEventListener('click', () => showLog('sync-log', KernelCore.diningTrace()));
+  $('peterson-run').addEventListener('click', () => showLog('sync-log', KernelCore.petersonTrace()));
+  $('sem-run').addEventListener('click', () => showLog('sync-log', KernelCore.semaphoreTrace()));
 
   function runDisk(requests, head, size, algorithm) {
     if (!requests.length || !Number.isInteger(head) || !Number.isInteger(size) || size <= 0 ||
@@ -981,43 +2438,14 @@ function bankRequest(s, pid, req) {
     $(id).addEventListener('change', renderDisk);
   });
 
-  function allocateRegion(regions, pid, size, policy) {
-    let candidates = [];
-    regions.forEach((region, i) => {
-      if (region.pid === 0 && region.size >= size) candidates.push(i);
-    });
-    if (!candidates.length) return false;
-    let index = candidates[0];
-    if (policy === 'Best Fit') candidates.forEach(i => { if (regions[i].size < regions[index].size) index = i; });
-    if (policy === 'Worst Fit') candidates.forEach(i => { if (regions[i].size > regions[index].size) index = i; });
-    const hole = regions[index];
-    if (hole.size === size) hole.pid = pid;
-    else {
-      regions.splice(index, 1, { start: hole.start, size, pid },
-        { start: hole.start + size, size: hole.size - size, pid: 0 });
-    }
-    return true;
-  }
-  function mergeMemory(regions) {
-    for (let i = 1; i < regions.length;) {
-      if (regions[i - 1].pid === 0 && regions[i].pid === 0) {
-        regions[i - 1].size += regions[i].size;
-        regions.splice(i, 1);
-      } else i++;
-    }
-  }
   function simulateMemory(policy, capacity) {
     const regions = [{ start: 0, size: capacity, pid: 0 }];
-    const operations = [[1, 15], [2, 10], [3, 25], [4, 10], [5, 20]];
+    const operations = [[1, 10], [2, 25], [3, 5], [4, 30], [5, 5], [6, 20], [7, 5]];
     const results = [];
-    operations.forEach(([pid, size]) => results.push({ pid: 'P' + pid, size, ok: allocateRegion(regions, pid, size, policy) }));
-    [1, 3].forEach(pid => {
-      const region = regions.find(r => r.pid === pid);
-      if (region) region.pid = 0;
-      mergeMemory(regions);
-    });
-    results.push({ pid: 'P6', size: 18, ok: allocateRegion(regions, 6, 18, policy) });
-    results.push({ pid: 'P7', size: 22, ok: allocateRegion(regions, 7, 22, policy) });
+    operations.forEach(([pid, size]) => results.push({ pid: 'P' + pid, size, ok: KernelCore.memoryAllocate(regions, pid, size, policy) }));
+    [2, 4, 6].forEach(pid => { KernelCore.memoryRelease(regions, pid); });
+    results.push({ pid: 'P8', size: 18, ok: KernelCore.memoryAllocate(regions, 8, 18, policy) });
+    results.push({ pid: 'P9', size: 12, ok: KernelCore.memoryAllocate(regions, 9, 12, policy) });
     const free = regions.filter(r => r.pid === 0).reduce((sum, r) => sum + r.size, 0);
     const largest = regions.reduce((best, r) => r.pid === 0 ? Math.max(best, r.size) : best, 0);
     return { policy, regions, results, free, largest, fragmentation: free - largest, capacity };
@@ -1028,13 +2456,13 @@ function bankRequest(s, pid, req) {
     const policies = ['First Fit', 'Best Fit', 'Worst Fit'].map(policy => simulateMemory(policy, capacity));
     const table = $('memory-table'); table.innerHTML = '';
     const header = el('tr');
-    ['Policy', 'P6 (18 units)', 'P7 (22 units)', 'Free', 'Largest hole', 'External fragmentation'].forEach((x, i) => header.appendChild(el('th', i ? 'num' : '', x)));
+    ['Policy', 'P8 (18 units)', 'P9 (12 units)', 'Free', 'Largest hole', 'External fragmentation'].forEach((x, i) => header.appendChild(el('th', i ? 'num' : '', x)));
     table.appendChild(header);
     policies.forEach(result => {
       const row = el('tr');
       row.appendChild(el('td', '', result.policy));
-      row.appendChild(el('td', 'num', result.results[5].ok ? 'allocated' : 'failed'));
-      row.appendChild(el('td', 'num', result.results[6].ok ? 'allocated' : 'failed'));
+      row.appendChild(el('td', 'num', result.results[7].ok ? 'allocated' : 'failed'));
+      row.appendChild(el('td', 'num', result.results[8].ok ? 'allocated' : 'failed'));
       [result.free, result.largest, result.fragmentation].forEach(v => row.appendChild(el('td', 'num', String(v))));
       table.appendChild(row);
     });
@@ -1050,10 +2478,76 @@ function bankRequest(s, pid, req) {
         map.appendChild(cell);
       });
       card.appendChild(map);
-      card.appendChild(el('p', 'note', 'P1 and P3 are released before P6/P7 request space.'));
+      card.appendChild(el('p', 'note', 'P2, P4 and P6 are released before P8/P9 request space. Identical requests, different placement.'));
       maps.appendChild(card);
     });
   }
+  // Interactive allocator: the user drives the same fit policies with their own
+  // allocation/release sequence.
+  let mem2Regions = [{ start: 0, size: 100, pid: 0 }];
+  let mem2Log = [];
+  function mem2Capacity() {
+    const value = parseInt($('mem2-capacity').value, 10);
+    return value >= 20 && value <= 512 ? value : 100;
+  }
+  function mem2Render() {
+    const capacity = mem2Capacity();
+    $('mem2-capacity').value = capacity;
+    const map = $('mem2-map'); map.innerHTML = '';
+    mem2Regions.forEach(region => {
+      const cell = el('div', 'memory-region' + (region.pid === 0 ? ' free' : ''),
+                      region.pid === 0 ? 'FREE' : 'P' + region.pid);
+      cell.style.width = (100 * region.size / capacity) + '%';
+      if (region.pid !== 0) cell.style.background = col(region.pid - 1);
+      cell.title = 'start=' + region.start + ', size=' + region.size;
+      map.appendChild(cell);
+    });
+    const free = mem2Regions.filter(r => r.pid === 0).reduce((sum, r) => sum + r.size, 0);
+    const largest = mem2Regions.reduce((best, r) => r.pid === 0 ? Math.max(best, r.size) : best, 0);
+    const stats = $('mem2-stats'); stats.innerHTML = '';
+    [['used', (capacity - free) + '/' + capacity], ['free', String(free)],
+     ['largest hole', String(largest)], ['external fragmentation', String(free - largest)]].forEach(pair => {
+      const d = el('div', 'stat'); d.appendChild(el('b', '', pair[1]));
+      d.appendChild(el('span', '', pair[0])); stats.appendChild(d);
+    });
+    const log = $('mem2-log'); log.innerHTML = '';
+    mem2Log.slice(-10).forEach(line => log.appendChild(el('div', '', line)));
+  }
+  function mem2Reset() {
+    mem2Regions = [{ start: 0, size: mem2Capacity(), pid: 0 }];
+    mem2Log = [];
+    mem2Render();
+  }
+  $('mem2-allocate').addEventListener('click', () => {
+    const pid = parseInt($('mem2-pid').value, 10);
+    const size = parseInt($('mem2-size').value, 10);
+    const policy = $('mem2-policy').value;
+    if (!(pid > 0) || !(size > 0)) { mem2Log.push('Enter a positive PID and size.'); mem2Render(); return; }
+    if (mem2Regions.some(region => region.pid === pid)) {
+      mem2Log.push('P' + pid + ' already owns a partition; release it first.'); mem2Render(); return;
+    }
+    if (KernelCore.memoryAllocate(mem2Regions, pid, size, policy)) {
+      mem2Log.push(policy + ': allocated P' + pid + ' (' + size + ' units).');
+      mem2Render();
+    } else {
+      mem2Log.push(policy + ': P' + pid + ' (' + size + ' units) FAILED - no hole is large enough.');
+      mem2Render();
+    }
+  });
+  $('mem2-release').addEventListener('click', () => {
+    const pid = parseInt($('mem2-pid').value, 10);
+    if (!KernelCore.memoryRelease(mem2Regions, pid)) {
+      mem2Log.push('P' + pid + ' has no partition.');
+      mem2Render();
+      return;
+    }
+    mem2Log.push('Released P' + pid + '; adjacent free regions coalesced.');
+    mem2Render();
+  });
+  $('mem2-reset').addEventListener('click', mem2Reset);
+  $('mem2-capacity').addEventListener('change', mem2Reset);
+  mem2Render();
+
   $('memory-run').addEventListener('click', renderMemory);
   $('mem-capacity').addEventListener('change', renderMemory);
 
@@ -1070,307 +2564,293 @@ function bankRequest(s, pid, req) {
   }
   $('seg-translate').addEventListener('click', translateSegment);
   function tlbDemo() {
-    showLog('tlb-log', [
-      'Page table: P1 page 0 → frame 4; page 1 → frame 9. TLB capacity: 2.',
-      'Access P1:0 + 12 → TLB MISS, page-table lookup, physical address 412.',
-      'Access P1:0 + 35 → TLB HIT, physical address 435.',
-      'Access P1:1 + 4 → TLB MISS, page-table lookup, physical address 904.',
-      'Access P1:2 + 0 → TLB MISS + PAGE FAULT (page is not resident).',
-      'Working-set window 4, frames 3: reference set 1 2 1 3 → WSS=3 (fits).',
-      'Next window 2 1 3 4 → WSS=4 (memory pressure / thrashing risk).'
-    ]);
+    const lines = KernelCore.tlbTrace();
+    const ws = KernelCore.workingSet([1, 2, 1, 3, 4, 3, 4, 5, 6, 5, 6], 4, 3);
+    lines.push('');
+    ws.rows.forEach(row => {
+      lines.push('t=' + row.t + ' WSS=' + row.pages.length + ' pages [' + row.pages.join(' ') + '] ' +
+        (row.pressure ? 'MEMORY PRESSURE' : 'OK'));
+    });
+    lines.push(ws.thrashing ? 'Thrashing risk: a working set exceeds the available frames.'
+                            : 'No working-set window exceeds the available frames.');
+    showLog('tlb-log', lines);
   }
   $('tlb-run').addEventListener('click', tlbDemo);
 
-  $('lifecycle-run').addEventListener('click', () => showLog('lifecycle-log', [
-    '[t=0] Kernel creates P6 (editor), priority 1: NEW → READY',
-    '[t=0] Dispatcher selects P6: READY → RUNNING',
-    '[t=2] P6 requests disk read: RUNNING → WAITING',
-    '[t=3] Disk interrupt signals I/O complete: WAITING → READY',
-    '[t=3] Dispatcher resumes P6: READY → RUNNING',
-    '[t=5] P6 exits: RUNNING → TERMINATED',
-    'User mode calls readFile(); a trap switches to kernel mode, validates access, performs I/O, then returns to user mode.'
-  ]));
-  $('thread-run').addEventListener('click', () => showLog('thread-log', [
-    'Many-to-one: T1 and T2 map to one kernel thread.',
-    'T1 blocks for I/O → the shared kernel thread blocks; T2 cannot run.',
-    'One-to-one: each user thread maps to a kernel thread.',
-    'T1 blocks for I/O → T2 can still run.',
-    'This deterministic illustration creates no real OS threads.'
-  ]));
+  $('lifecycle-run').addEventListener('click', () =>
+    showLog('lifecycle-log', KernelCore.lifecycleTrace()));
+  $('thread-run').addEventListener('click', () =>
+    showLog('thread-log', KernelCore.threadModelTrace()));
 
-  $('deadlock-run').addEventListener('click', () => showLog('deadlock-log', [
-    'Initial: P0 holds R0 and requests R1; P1 holds R1 and requests R0.',
-    'Wait-for graph: P0 → P1 → P0.',
-    'Cycle detected: P0 and P1 are deadlocked.',
-    'Recovery selects P0 as victim and terminates it.',
-    'Release R0; P1 can acquire R0 and finish.',
-    'Re-run detection: no deadlock remains.'
-  ]));
-  $('ipc-run').addEventListener('click', () => showLog('ipc-log', [
-    'Message queue capacity = 2.',
-    'P1 sends “compile”: queued. P2 sends “status?”: queued.',
-    'P3 sends “extra”: blocked because the queue is full.',
-    'Receiver gets P1’s message, then P2’s; a queue slot becomes available.',
-    'Shared memory: P1 writes result=42; P2 reads it.',
-    'P2 write is denied: P1 owns the shared region.'
-  ]));
-
-  let fsOwners = Array(32).fill(0), fsFiles = {}, fsJournal = [], nextFsId = 1;
-  function fsAllocate(ownerMap, fileId, dataCount, method) {
-    const count = dataCount + (method === 'indexed' ? 1 : 0), blocks = [];
-    if (method === 'contiguous') {
-      let start = -1, run = 0;
-      for (let i = 0; i < ownerMap.length; i++) {
-        if (ownerMap[i] === 0) { if (!run) start = i; run++; if (run === count) break; }
-        else run = 0;
-      }
-      if (run < count) return null;
-      for (let i = 0; i < count; i++) blocks.push(start + i);
-    } else {
-      for (let i = 0; i < ownerMap.length && blocks.length < count; i++) if (ownerMap[i] === 0) blocks.push(i);
-      if (blocks.length !== count) return null;
-    }
-    blocks.forEach(block => { ownerMap[block] = fileId; });
-    return { blocks, dataBlocks: blocks.slice(0, dataCount), indexBlock: method === 'indexed' ? blocks[blocks.length - 1] : null };
+  // Deadlock: a real multi-instance detection and recovery model.
+  let deadlockState = KernelCore.deadlockSample();
+  function renderDeadlock() {
+    const table = $('deadlock-table'); table.innerHTML = '';
+    const head = el('tr');
+    head.appendChild(el('th', '', 'Process'));
+    head.appendChild(el('th', '', 'Allocation (R0 R1)'));
+    head.appendChild(el('th', '', 'Request (R0 R1)'));
+    head.appendChild(el('th', '', 'Outstanding need'));
+    table.appendChild(head);
+    deadlockState.allocation.forEach((row, pid) => {
+      const tr = el('tr');
+      tr.appendChild(el('td', '', 'P' + pid));
+      tr.appendChild(el('td', '', row.join('  ')));
+      tr.appendChild(el('td', '', deadlockState.request[pid].join('  ')));
+      tr.appendChild(el('td', '', deadlockState.request[pid].every(x => x === 0) ? 'none' : 'waiting'));
+      table.appendChild(tr);
+    });
   }
+  $('deadlock-run').addEventListener('click', () => {
+    const detection = KernelCore.deadlockDetect(deadlockState);
+    const lines = [];
+    lines.push('Detection algorithm: Work = [' + deadlockState.available.join(' ') + '].');
+    detection.trace.forEach(step => {
+      lines.push('P' + step.pid + ' can finish; releases [' + step.released.join(' ') +
+        ']; Work ' + step.before.join(' ') + ' -> ' + step.after.join(' ') + '.');
+    });
+    lines.push(detection.deadlocked.length
+      ? 'Deadlocked processes: ' + detection.deadlocked.map(pid => 'P' + pid).join(', ') + '.'
+      : 'No deadlock detected; every process can finish.');
+    if (detection.deadlocked.length)
+      lines.push('Wait-for cycle: ' + detection.deadlocked.map(pid => 'P' + pid).join(' -> ') +
+        ' -> P' + detection.deadlocked[0] + '.');
+    showLog('deadlock-log', lines);
+    renderDeadlock();
+    const message = $('deadlock-msg');
+    message.className = 'msg ' + (detection.deadlocked.length ? 'no' : 'ok');
+    message.textContent = detection.deadlocked.length
+      ? 'Deadlocked: ' + detection.deadlocked.map(pid => 'P' + pid).join(', ') + '. Recovery is needed.'
+      : 'System is not deadlocked.';
+  });
+  $('deadlock-recover').addEventListener('click', () => {
+    const outcome = KernelCore.deadlockRecover(deadlockState, $('deadlock-policy').value);
+    if (outcome.victim < 0) {
+      showLog('deadlock-log', ['No deadlocked process to recover.']);
+      $('deadlock-msg').className = 'msg ok';
+      $('deadlock-msg').textContent = 'Nothing to recover.';
+      return;
+    }
+    const before = deadlockState;
+    deadlockState = outcome.state;
+    const lines = [];
+    lines.push('Policy: ' + $('deadlock-policy').value + ' -> terminate P' + outcome.victim + '.');
+    lines.push('Before: Available [' + before.available.join(' ') + '], P' + outcome.victim +
+      ' held [' + before.allocation[outcome.victim].join(' ') + '].');
+    lines.push('After: Available [' + deadlockState.available.join(' ') + '], P' + outcome.victim +
+      ' holds [0 0] and has no outstanding request.');
+    lines.push(outcome.after.deadlocked.length
+      ? 'Re-run detection: still deadlocked: ' +
+        outcome.after.deadlocked.map(pid => 'P' + pid).join(', ') + '.'
+      : 'Re-run detection: no deadlock remains; remaining processes can finish.');
+    showLog('deadlock-log', lines);
+    renderDeadlock();
+    $('deadlock-msg').className = 'msg ' + (outcome.after.deadlocked.length ? 'no' : 'ok');
+    $('deadlock-msg').textContent = 'P' + outcome.victim + ' terminated and its resources released.';
+  });
+  $('deadlock-reset').addEventListener('click', () => {
+    deadlockState = KernelCore.deadlockSample();
+    renderDeadlock();
+    showLog('deadlock-log', ['State reset to the sample deadlock.']);
+    $('deadlock-msg').className = 'msg';
+    $('deadlock-msg').textContent = 'Available: ' + deadlockState.available.join('  ') +
+      '  (R0 R1). Detect the deadlock, then choose a victim policy and recover.';
+  });
+  renderDeadlock();
+  $('deadlock-msg').className = 'msg';
+  $('deadlock-msg').textContent = 'Available: ' + deadlockState.available.join('  ') +
+    '  (R0 R1). Detect the deadlock, then choose a victim policy and recover.';
+
+  $('ipc-run').addEventListener('click', () => showLog('ipc-log', KernelCore.ipcTrace()));
+
+  // The explorer and the application kernel share one virtual file system.
+  // It starts empty and is filled from the committed repository samples by the
+  // boot loader (never from embedded copies when the page is served normally).
+  let fs = KernelCore.newFs(128);
+  KernelCore.fsMkdirs(fs, '/docs');
+  KernelCore.fsMkdirs(fs, '/apps');
+  function fsCwd() {
+    const value = KernelCore.normalise($('fs-cwd').value.trim() || '/');
+    if (!value || !fs.dirs[value]) return null;
+    return value;
+  }
+  function fsResolve(value) {
+    const cwd = fsCwd();
+    if (!cwd || !value) return '';
+    return value.charAt(0) === '/' ? KernelCore.normalise(value)
+                                   : KernelCore.normalise(cwd + '/' + value);
+  }
+  function fsMessage(text) { $('fs-message').textContent = text; }
   function renderFs() {
+    const cwd = fsCwd() || '/';
     const table = $('fs-table'); table.innerHTML = '';
-    const header = el('tr'); ['Path', 'Bytes', 'Blocks', 'Allocation', 'Owner'].forEach(x => header.appendChild(el('th', '', x))); table.appendChild(header);
-    Object.values(fsFiles).sort((a, b) => a.path.localeCompare(b.path)).forEach(file => {
+    const header = el('tr');
+    ['Name', 'Path', 'Type', 'Bytes', 'Blocks', 'Allocation', 'Owner', 'Source', 'Action']
+      .forEach(x => header.appendChild(el('th', '', x)));
+    table.appendChild(header);
+    Object.keys(fs.dirs).filter(d => d !== '/' && KernelCore.parentOf(d) === cwd).sort().forEach(dir => {
       const row = el('tr');
-      [file.path, String(file.contents.length), file.blocks.join(', '), file.method, file.owner].forEach(x => row.appendChild(el('td', '', x)));
+      [dir.split('/').pop() + '/', dir, 'DIR', '-', '-', '-', '-', 'directory']
+        .forEach(x => row.appendChild(el('td', '', x)));
+      row.appendChild(el('td', '', ''));
       table.appendChild(row);
     });
+    Object.values(fs.files).filter(f => KernelCore.parentOf(f.path) === cwd)
+      .sort((a, b) => a.path.localeCompare(b.path)).forEach(file => {
+      const row = el('tr');
+      [file.path.split('/').pop(), file.path, SampleLoader.fileType(file.path),
+       String(file.contents.length), file.blocks.length, file.method, file.owner,
+       file.source || 'virtual']
+        .forEach(value => row.appendChild(el('td', '', value)));
+      const action = el('td');
+      const open = el('button', 'btn', 'Open');
+      open.type = 'button';
+      open.addEventListener('click', () => {
+        $('fs-path').value = cwd === '/' ? file.path.slice(1)
+                                         : file.path.slice(cwd.length + 1);
+        $('fs-content').value = file.contents;
+        fsMessage('Opened ' + file.path + ' in the editor. Press Write to save changes to the virtual copy.');
+      });
+      action.appendChild(open);
+      row.appendChild(action);
+      table.appendChild(row);
+    });
+    if (table.children.length === 1) {
+      const row = el('tr'); const cell = el('td', '', 'Directory is empty. (Repository samples load at start-up; restart the server if this stays empty.)');
+      cell.colSpan = 9; row.appendChild(cell); table.appendChild(row);
+    }
     const owners = $('fs-blocks'); owners.innerHTML = '';
-    for (let i = 0; i < fsOwners.length; i += 8) {
-      const line = fsOwners.slice(i, i + 8).map((id, j) => (i + j) + ':' + (id ? 'F' + id : 'free')).join('  ');
+    for (let i = 0; i < fs.owners.length; i += 8) {
+      const line = fs.owners.slice(i, i + 8).map((id, j) => (i + j) + ':' + (id ? 'F' + id : 'free')).join('  ');
       owners.appendChild(el('div', '', line));
     }
+    owners.appendChild(el('div', '', 'Used ' + KernelCore.fsUsed(fs) + '/' + fs.total + ' blocks; free ' + KernelCore.fsFree(fs) + ' • journal entries: ' + fs.journal.length));
     const journal = $('fs-journal'); journal.innerHTML = '';
-    fsJournal.slice(-10).forEach(entry => journal.appendChild(el('div', '', entry)));
+    fs.journal.slice(-10).forEach(entry => journal.appendChild(el('div', '', entry)));
   }
-  function fsPathValid(path) { return /^\/(apps|docs)\/[^/]+$/.test(path) && !path.includes('..'); }
-  function fsMessage(text) { $('fs-message').textContent = text; }
   $('fs-write').addEventListener('click', () => {
-    const path = $('fs-path').value.trim(), method = $('fs-method').value, actor = $('fs-user').value;
-    if (!fsPathValid(path)) { fsMessage('Use a filename under /apps or /docs, for example /apps/notes.txt.'); return; }
-    const old = fsFiles[path];
+    const path = fsResolve($('fs-path').value.trim()), method = $('fs-method').value, actor = $('fs-user').value;
+    if (!path) { fsMessage('Enter a path relative to the current directory, or an absolute path.'); return; }
+    const old = fs.files[path];
     if (old && actor !== 'admin' && actor !== old.owner) { fsMessage('Access denied: only the file owner or admin can write.'); return; }
-    const id = old ? old.id : nextFsId;
-    const trial = fsOwners.slice();
-    if (old) old.blocks.forEach(block => { trial[block] = 0; });
     const content = $('fs-content').value;
-    const dataCount = Math.max(1, Math.ceil(content.length / 16));
-    const allocation = fsAllocate(trial, id, dataCount, method);
-    if (!allocation) { fsMessage('Write failed: insufficient free/contiguous blocks. Existing file is unchanged.'); return; }
-    fsJournal.push('BEGIN write ' + path);
-    fsOwners = trial;
-    fsFiles[path] = { id, path, contents: content, method, blocks: allocation.blocks,
-      dataBlocks: allocation.dataBlocks, indexBlock: allocation.indexBlock, owner: old ? old.owner : actor };
-    if (!old) nextFsId++;
-    fsJournal.push('COMMIT write ' + path);
-    fsMessage('Wrote ' + content.length + ' bytes using ' + method + ' allocation; blocks ' + allocation.blocks.join(', ') + '.');
+    if (!KernelCore.fsWrite(fs, path, content, method, old ? old.owner : actor)) {
+      fsMessage('Write failed: invalid path, directory collision, access, or insufficient blocks. Existing data is unchanged.');
+      return;
+    }
+    fsMessage('Wrote ' + content.length + ' bytes to ' + path + ' using ' + method + ' allocation; blocks ' + fs.files[path].blocks.join(', ') + '.');
     renderFs();
   });
   $('fs-read').addEventListener('click', () => {
-    const path = $('fs-path').value.trim(), file = fsFiles[path], actor = $('fs-user').value;
+    const path = fsResolve($('fs-path').value.trim()), file = fs.files[path] || null, actor = $('fs-user').value;
     if (!file) { fsMessage('File not found.'); return; }
     if (actor !== 'admin' && actor !== file.owner) { fsMessage('Access denied for ' + actor + '.'); return; }
     if ($('fs-access').value === 'direct') {
       const offset = Math.max(0, parseInt($('fs-offset').value, 10) || 0);
-      fsMessage('Direct read at byte ' + offset + ': ' + file.contents.slice(offset, offset + 16));
+      if (offset > file.contents.length) { fsMessage('Direct-read offset is past EOF.'); return; }
+      fsMessage('Direct read at byte ' + offset + ': ' + JSON.stringify(file.contents.slice(offset, offset + 16)));
     } else fsMessage('Sequential read: ' + file.contents);
   });
   $('fs-delete').addEventListener('click', () => {
-    const path = $('fs-path').value.trim(), file = fsFiles[path], actor = $('fs-user').value;
+    const path = fsResolve($('fs-path').value.trim()), file = fs.files[path] || null, actor = $('fs-user').value;
     if (!file) { fsMessage('File not found.'); return; }
     if (actor !== 'admin' && actor !== file.owner) { fsMessage('Access denied for ' + actor + '.'); return; }
-    fsJournal.push('BEGIN delete ' + path);
-    file.blocks.forEach(block => { fsOwners[block] = 0; });
-    delete fsFiles[path]; fsJournal.push('COMMIT delete ' + path);
-    fsMessage('Deleted ' + path + ' and returned its blocks to the free list.'); renderFs();
+    KernelCore.fsDelete(fs, path);
+    fsMessage('Deleted ' + path + ' and returned its blocks to the free list.');
+    renderFs();
   });
-  $('fs-list').addEventListener('click', () => { fsMessage('Showing simulated directory entries. Directories /apps and /docs are pre-created.'); renderFs(); });
-
-  function renderAppTable() {
-    const rows = [
-      { pid: 1, name: 'calculator', priority: 1, cpu: 2, ram: 6, resources: '1, 0, 2', file: 'calculator.txt' },
-      { pid: 2, name: 'text-editor', priority: 2, cpu: 3, ram: 10, resources: '1, 0, 0', file: 'notes.txt' },
-      { pid: 3, name: 'counter', priority: 3, cpu: 2, ram: 8, resources: '0, 1, 0', file: 'counter.txt' }
-    ];
-    const table = $('app-table'); table.innerHTML = '';
-    const header = el('tr'); ['PID', 'Application', 'CPU priority', 'CPU before I/O', 'RAM units', 'Banker request', 'Output file'].forEach(x => header.appendChild(el('th', '', x))); table.appendChild(header);
-    rows.forEach(app => {
-      const row = el('tr');
-      row.appendChild(el('td', '', 'P' + app.pid)); row.appendChild(el('td', '', app.name));
-      const priority = el('td', '', 'Priority ' + app.priority + (app.priority === 1 ? ' · highest' : ''));
-      priority.className = 'priority-' + app.priority; row.appendChild(priority);
-      [String(app.cpu), String(app.ram), '[' + app.resources + ']', '/apps/' + app.file].forEach(x => row.appendChild(el('td', '', x)));
-      table.appendChild(row);
-    });
-  }
-
-  function runIntegratedBrowser() {
-    const tasks = [
-      { pid: 1, name: 'calculator', priority: 1, cpuBeforeIO: 2, ram: 6, request: [1,0,2], path: '/apps/calculator.txt', method: 'contiguous', contents: '14 + 28 = 42' },
-      { pid: 2, name: 'text-editor', priority: 2, cpuBeforeIO: 3, ram: 10, request: [1,0,0], path: '/apps/notes.txt', method: 'linked', contents: 'Mini Kernel Simulator: files are stored in simulated blocks.' },
-      { pid: 3, name: 'counter', priority: 3, cpuBeforeIO: 2, ram: 8, request: [0,1,0], path: '/apps/counter.txt', method: 'indexed', contents: '1+2+3+4+5 = 15' }
-    ].map(app => Object.assign(app, { state: 'NEW', remaining: app.cpuBeforeIO, phase: 0,
-      response: -1, finish: -1, waiting: 0, ioWait: 0, ioRemaining: 0, ioStart: 0, blocks: [] }));
-    const logs = [], ioQueue = [], cpuLane = [], diskLane = [], files = [], blockOwners = Array(48).fill(0);
-    const ramRegions = [], ramReleased = new Set();
-    let ramNext = 0, bankState = bankSample(), nextFileId = 1, running = -1, finished = 0;
-    let time = 0, cpuBusy = 0, dispatches = 0, diskHead = 53, diskMovement = 0;
-    const diskPath = [53];
-    const trace = (t, text) => logs.push('[t=' + t + '] ' + text);
-    const state = (app, next, t) => { trace(t, 'P' + app.pid + ' (' + app.name + '): ' + app.state + ' → ' + next); app.state = next; };
-
-    tasks.forEach(app => {
-      const decision = bankRequest(bankState, app.pid, app.request);
-      if (!decision.next) throw new Error('Sample Banker request unexpectedly failed for P' + app.pid);
-      bankState = decision.next;
-      trace(0, 'Banker grants P' + app.pid + ' request [' + app.request.join(', ') + '].');
-      ramRegions.push({ pid: app.pid, start: ramNext, size: app.ram }); ramNext += app.ram;
-      trace(0, 'Kernel allocates ' + app.ram + ' RAM units to P' + app.pid + '.');
-    });
-
-    function writeAppFile(app) {
-      const id = nextFileId++, dataCount = Math.max(1, Math.ceil(app.contents.length / 16));
-      const need = dataCount + (app.method === 'indexed' ? 1 : 0), chosen = [];
-      if (app.method === 'contiguous') {
-        let start = -1, run = 0;
-        for (let i = 0; i < blockOwners.length; i++) {
-          if (!blockOwners[i]) { if (!run) start = i; run++; if (run === need) break; }
-          else run = 0;
-        }
-        if (run < need) throw new Error('Integrated demo ran out of contiguous disk blocks.');
-        for (let i = 0; i < need; i++) chosen.push(start + i);
-      } else {
-        for (let i = 0; i < blockOwners.length && chosen.length < need; i++) if (!blockOwners[i]) chosen.push(i);
-      }
-      chosen.forEach(block => { blockOwners[block] = id; });
-      app.blocks = chosen;
-      files.push({ path: app.path, size: app.contents.length, method: app.method, blocks: chosen.slice() });
-      trace(time + 1, 'File system writes ' + app.path + ' using ' + app.method + ' allocation; blocks [' + chosen.join(', ') + '].');
-      if (app.pid === 1) trace(time + 1, 'calculator computes 14 + 28 = 42.');
-      if (app.pid === 2) trace(time + 1, 'text-editor saves its note.');
-      if (app.pid === 3) trace(time + 1, 'counter computes 1 + 2 + 3 + 4 + 5 = 15.');
-      app.ioRemaining = chosen.length; app.ioStart = time + 1;
-      state(app, 'WAITING', time + 1);
-      chosen.forEach(block => ioQueue.push({ app, block }));
-    }
-
-    while (finished < tasks.length && time < 200) {
-      tasks.forEach(app => { if (app.state === 'NEW') state(app, 'READY', time); });
-      const diskWasBusy = ioQueue.length > 0;
-      let challenger = -1;
-      tasks.forEach((app, i) => {
-        if (app.state === 'READY' && (challenger < 0 || app.priority < tasks[challenger].priority)) challenger = i;
-      });
-      if (running >= 0 && challenger >= 0 && tasks[challenger].priority < tasks[running].priority) {
-        state(tasks[running], 'READY', time); running = -1;
-      }
-      if (running < 0 && challenger >= 0) {
-        running = challenger;
-        const app = tasks[running];
-        if (app.response < 0) app.response = time;
-        state(app, 'RUNNING', time); dispatches++;
-      }
-
-      if (running < 0) { cpuLane.push(null); trace(time, 'CPU idle.'); }
-      else {
-        const app = tasks[running];
-        tasks.forEach((other, i) => { if (i !== running && other.state === 'READY') other.waiting++; });
-        cpuLane.push(app.pid); cpuBusy++; app.remaining--;
-        trace(time, 'CPU runs P' + app.pid + ' (' + app.name + '); phase remaining=' + app.remaining + '.');
-        if (app.remaining === 0 && app.phase === 0) {
-          writeAppFile(app); app.phase = 1; app.remaining = 1; running = -1;
-        } else if (app.remaining === 0 && app.phase === 1) {
-          app.finish = time + 1; state(app, 'TERMINATED', time + 1);
-          trace(time + 1, 'Kernel releases P' + app.pid + ' RAM and Banker resources.');
-          const allocation = bankState.alloc[app.pid];
-          allocation.forEach((units, resource) => { bankState.avail[resource] += units; });
-          bankState.alloc[app.pid] = [0, 0, 0];
-          bankState.max[app.pid] = [0, 0, 0];
-          ramReleased.add(app.pid);
-          finished++; running = -1;
-        }
-      }
-
-      if (diskWasBusy) {
-        const request = ioQueue.shift(), app = request.app, previous = diskHead;
-        diskMovement += Math.abs(previous - request.block); diskHead = request.block;
-        if (diskPath[diskPath.length - 1] !== request.block) diskPath.push(request.block);
-        diskLane.push('P' + app.pid);
-        trace(time, 'Disk serves block ' + request.block + ' for P' + app.pid + ' (' + previous + ' → ' + request.block + ').');
-        app.ioRemaining--;
-        if (app.ioRemaining === 0) {
-          app.ioWait = time + 1 - app.ioStart;
-          state(app, 'READY', time + 1);
-        }
-      } else diskLane.push(null);
-      time++;
-    }
-    if (finished !== tasks.length) throw new Error('Integrated browser simulation did not finish.');
-
-    const timeline = $('integrated-timeline'); timeline.innerHTML = '';
-    [['CPU', cpuLane], ['Disk', diskLane]].forEach(([label, lane]) => {
-      const line = el('div', 'timeline-lane'); line.appendChild(el('span', 'timeline-label', label));
-      const cells = el('div', 'lane-cells');
-      lane.forEach((pid, tick) => {
-        const cell = el('span', 'tick-cell' + (pid ? ' busy' : ''), pid ? (label === 'CPU' ? 'P' + pid : 'P' + pid) : '—');
-        if (pid) cell.style.background = label === 'CPU' ? col(pid - 1) : 'var(--accent)';
-        cell.title = 't=' + tick + ': ' + (pid ? (label + ' serves P' + pid) : label + ' idle');
-        cells.appendChild(cell);
-      });
-      line.appendChild(cells); timeline.appendChild(line);
-    });
-    const ruler = el('div', 'timeline-lane'); ruler.appendChild(el('span', 'timeline-label', 'Tick'));
-    const tickCells = el('div', 'lane-cells');
-    for (let t = 0; t < time; t++) tickCells.appendChild(el('span', 'tick-cell', String(t)));
-    ruler.appendChild(tickCells); timeline.appendChild(ruler);
-
-    const metrics = $('integrated-stats'); metrics.innerHTML = '';
-    const avgResponse = tasks.reduce((sum, app) => sum + app.response, 0) / tasks.length;
-    const utilization = 100 * cpuBusy / time;
-    [['Elapsed ticks', String(time)], ['CPU utilization', utilization.toFixed(1) + '%'],
-      ['Dispatches', String(dispatches)], ['Disk movement', diskMovement + ' cylinders'],
-      ['Average response', avgResponse.toFixed(2)]].forEach(([label, value]) => {
-      const stat = el('div', 'stat'); stat.appendChild(el('b', '', value)); stat.appendChild(el('span', '', label)); metrics.appendChild(stat);
-    });
-    showLog('integrated-log', logs);
-    const fileTable = $('integrated-files'); fileTable.innerHTML = '';
-    const fileHeader = el('tr'); ['Path', 'Bytes', 'Allocation', 'Blocks'].forEach(x => fileHeader.appendChild(el('th', '', x))); fileTable.appendChild(fileHeader);
-    files.forEach(file => {
-      const row = el('tr'); [file.path, String(file.size), file.method, file.blocks.join(', ')].forEach(x => row.appendChild(el('td', '', x))); fileTable.appendChild(row);
-    });
-    const ramLog = $('integrated-ram'); ramLog.innerHTML = '';
-    ramRegions.forEach(region => {
-      const app = tasks.find(task => task.pid === region.pid);
-      ramLog.appendChild(el('div', '', 'P' + region.pid + ' ' + app.name + ': RAM [' + region.start + '..' +
-        (region.start + region.size - 1) + '] (' + region.size + ' units) — ' +
-        (ramReleased.has(region.pid) ? 'released on exit' : 'allocated')));
-    });
-    ramLog.appendChild(el('div', '', 'Free after run: 64 / 64 units.'));
-    const blocks = $('integrated-blocks'); blocks.innerHTML = '';
-    for (let i = 0; i < blockOwners.length; i += 8) {
-      blocks.appendChild(el('div', '', blockOwners.slice(i, i + 8).map((owner, j) => (i + j) + ':' + (owner ? 'F' + owner : 'free')).join('  ')));
-    }
-  }
-  $('integrated-run').addEventListener('click', () => {
-    try { runIntegratedBrowser(); }
-    catch (error) { showLog('integrated-log', ['Demo error: ' + error.message]); }
+  $('fs-rename').addEventListener('click', () => {
+    const from = fsResolve($('fs-path').value.trim()), to = fsResolve($('fs-target').value.trim());
+    if (!from || !to) { fsMessage('Enter valid source and target paths.'); return; }
+    const file = fs.files[from], actor = $('fs-user').value;
+    if (!file) { fsMessage('File not found.'); return; }
+    if (actor !== 'admin' && actor !== file.owner) { fsMessage('Access denied for ' + actor + '.'); return; }
+    fsMessage(KernelCore.fsRename(fs, from, to) ? 'Renamed ' + from + ' to ' + to + '.' : 'Rename failed: the target exists or the parent directory is missing.');
+    renderFs();
   });
+  $('fs-copy').addEventListener('click', () => {
+    const from = fsResolve($('fs-path').value.trim()), to = fsResolve($('fs-target').value.trim());
+    if (!from || !to) { fsMessage('Enter valid source and target paths.'); return; }
+    const file = fs.files[from], actor = $('fs-user').value;
+    if (!file) { fsMessage('File not found.'); return; }
+    if (actor !== 'admin' && actor !== file.owner) { fsMessage('Access denied for ' + actor + '.'); return; }
+    if (!KernelCore.fsCopy(fs, from, to, $('fs-method').value)) { fsMessage('Copy failed: target exists, invalid path, or insufficient blocks.'); return; }
+    fsMessage('Copied ' + from + ' to ' + to + ' using ' + $('fs-method').value + ' allocation; blocks ' + fs.files[to].blocks.join(', ') + '.');
+    renderFs();
+  });
+  $('fs-move').addEventListener('click', () => {
+    const from = fsResolve($('fs-path').value.trim()), to = fsResolve($('fs-target').value.trim());
+    if (!from || !to) { fsMessage('Enter valid source and target paths.'); return; }
+    const file = fs.files[from], actor = $('fs-user').value;
+    if (!file) { fsMessage('File not found.'); return; }
+    if (actor !== 'admin' && actor !== file.owner) { fsMessage('Access denied for ' + actor + '.'); return; }
+    fsMessage(KernelCore.fsRename(fs, from, to) ? 'Moved ' + from + ' to ' + to + '.' : 'Move failed: the target exists or the parent directory is missing.');
+    renderFs();
+  });
+  $('fs-meta').addEventListener('click', () => {
+    const path = fsResolve($('fs-path').value.trim());
+    if (!path) { fsMessage('Enter a valid path.'); return; }
+    if (fs.dirs[path]) {
+      const entries = Object.keys(fs.files).filter(f => KernelCore.parentOf(f) === path).length +
+                      Object.keys(fs.dirs).filter(d => d !== path && KernelCore.parentOf(d) === path).length;
+      fsMessage('Directory ' + path + ' — ' + entries + ' entr' + (entries === 1 ? 'y' : 'ies'));
+      return;
+    }
+    const file = fs.files[path];
+    if (!file) { fsMessage('File not found.'); return; }
+    fsMessage('File ' + file.path + '\n  Owner: ' + file.owner + '\n  Size: ' + file.contents.length +
+      ' bytes\n  Allocation: ' + file.method + '\n  Blocks: ' + file.blocks.join(', ') +
+      '\n  Index block: ' + (file.indexBlock === null ? 'none' : file.indexBlock) +
+      '\n  Writes: ' + file.writes +
+      '\n  Source: ' + (file.source || 'virtual') +
+      '\n  Origin: ' + (file.origin || '-'));
+  });
+  $('fs-mkdir').addEventListener('click', () => {
+    const cwd = fsCwd();
+    const name = $('fs-dir-name').value.trim();
+    if (!cwd || !name) { fsMessage('Enter a valid current directory and a name.'); return; }
+    const path = KernelCore.normalise(cwd + '/' + name);
+    if (!path || !KernelCore.fsMkdirs(fs, path)) { fsMessage('Could not create the directory (it may exist).'); return; }
+    fsMessage('Created directory ' + path + '.');
+    renderFs();
+  });
+  $('fs-list').addEventListener('click', () => {
+    const cwd = fsCwd();
+    fsMessage(cwd ? 'Showing ' + cwd + '. Directories and files come from the simulated block store.' : 'That directory does not exist.');
+    renderFs();
+  });
+  $('fs-cwd').addEventListener('change', renderFs);
+
+  // The application/dashboard module can refresh this same simulated file system,
+  // so files written by the applications appear here after a kernel run.
+  window.MiniKernelFs = {
+    replace: function (next, options) {
+      fs = next;
+      options = options || {};
+      if (options.cwd && fs.dirs[options.cwd]) $('fs-cwd').value = options.cwd;
+      else if (!fs.dirs[KernelCore.normalise($('fs-cwd').value || '/')]) $('fs-cwd').value = '/docs';
+      renderFs();
+      if (options.message) fsMessage(options.message);
+    },
+    current: function () { return fs; },
+    render: function () { renderFs(); },
+    message: function (text) { fsMessage(text); },
+    openPath: function (path) {
+      const file = fs.files[path];
+      if (!file) return false;
+      $('fs-path').value = path;
+      $('fs-content').value = file.contents;
+      return true;
+    }
+  };
 
   buildProcTable();
   recompute(true);
   renderPaging();
   renderBank();
-  showLog('sync-log', producerConsumerTrace());
+  showLog('sync-log', KernelCore.producerConsumerTrace());
   renderDisk();
   renderMemory();
-  renderAppTable();
   renderFs();
   translateSegment();
   tlbDemo();
@@ -1378,6 +2858,859 @@ function bankRequest(s, pid, req) {
   showLog('thread-log', ['Select “Compare many-to-one / one-to-one” to show a blocking example.']);
   showLog('deadlock-log', ['Select “Detect and recover” to reveal the wait-for cycle and recovery.']);
   showLog('ipc-log', ['Select “Run IPC demo” to compare message queues and shared memory.']);
+})();
+</script>
+
+<script>
+/* Application/dashboard/I-O interface. Uses KernelCore above; it never calls the
+   C++ executable and never touches the host file system. */
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  const COLORS = 8;
+  const col = i => 'var(--p' + (i % COLORS) + ')';
+  const palette = pid => col((pid - 1 + COLORS) % COLORS);
+
+  let rows = [];
+  const state = {
+    run: null, tick: 0, timer: null, kills: [], ready: false,
+    samples: [], applications: [], repoFiles: [], manifest: null, fsApplied: false
+  };
+  let ioRuns = null;
+
+  function repoSamples() {
+    return state.samples.map(sample => ({
+      vfsPath: sample.vfsPath, source: sample.source,
+      contents: sample.contents, allocation: sample.allocation
+    }));
+  }
+  function kernelOptions(extra) {
+    return Object.assign({
+      cpu: $('app-cpu').value, io: $('app-io').value, memory: 96,
+      fs: window.MiniKernelFs.current()
+    }, extra || {});
+  }
+
+  function defaultBurst(kind) { return KernelCore.makeApp(kind, 1).burst; }
+  function kindOptions(selected) {
+    const sel = document.createElement('select');
+    KernelCore.APP_KINDS.forEach(kind => {
+      const option = document.createElement('option');
+      option.value = kind; option.textContent = KernelCore.KIND_INFO[kind].label;
+      if (kind === selected) option.selected = true;
+      sel.appendChild(option);
+    });
+    return sel;
+  }
+  function stopPlay() {
+    if (state.timer) { clearInterval(state.timer); state.timer = null; }
+    $('dash-play').textContent = 'Play'; $('app-play').textContent = 'Play';
+  }
+  function appMessage(text, kind) {
+    const box = $('app-message');
+    if (!box) return;
+    box.textContent = text || '';
+    box.className = 'msg' + (kind ? ' ' + kind : '');
+    box.style.display = text ? 'block' : 'none';
+  }
+  function invalidate() {
+    stopPlay();
+    state.run = null; state.tick = 0; state.kills = [];
+    appMessage('');
+    renderDash(); renderApps(); renderRunIo();
+  }
+  function renderLaunch() {
+    const table = $('app-launch'); table.innerHTML = '';
+    const head = el('tr');
+    ['PID', 'Name', 'Application', 'Work performed', 'CPU priority', 'Arrival', 'CPU burst', 'RAM', 'Output file', ''].forEach(h => head.appendChild(el('th', '', h)));
+    table.appendChild(head);
+    if (!rows.length) {
+      const tr = el('tr');
+      const cell = el('td', '', 'Loading application definitions from apps/app-manifest.json…');
+      cell.colSpan = 10;
+      tr.appendChild(cell);
+      table.appendChild(tr);
+      return;
+    }
+    rows.forEach((row, index) => {
+      const tr = el('tr');
+      tr.appendChild(el('td', '', 'P' + (index + 1)));
+      const nameCell = el('td'); const name = document.createElement('input');
+      name.type = 'text'; name.className = 'name'; name.value = row.name; name.setAttribute('aria-label', 'Name of P' + (index + 1));
+      name.addEventListener('input', () => { row.name = name.value; invalidate(); });
+      nameCell.appendChild(name); tr.appendChild(nameCell);
+      const kindCell = el('td'); const kind = kindOptions(row.kind);
+      kind.addEventListener('change', () => {
+        row.kind = kind.value; row.burst = defaultBurst(row.kind);
+        row.name = KernelCore.KIND_INFO[row.kind].label;
+        renderLaunch(); invalidate();
+      });
+      kindCell.appendChild(kind); tr.appendChild(kindCell);
+      tr.appendChild(el('td', '', row.description || KernelCore.KIND_INFO[row.kind].desc));
+      const priorityCell = el('td'); const priority = document.createElement('input');
+      priority.type = 'number'; priority.min = 1; priority.max = 3; priority.value = row.priority;
+      priority.setAttribute('aria-label', 'Priority of P' + (index + 1));
+      priority.addEventListener('input', () => {
+        const v = parseInt(priority.value, 10);
+        if (!isNaN(v)) { row.priority = Math.max(1, Math.min(3, v)); invalidate(); }
+      });
+      priorityCell.appendChild(priority); tr.appendChild(priorityCell);
+      const arrivalCell = el('td'); const arrival = document.createElement('input');
+      arrival.type = 'number'; arrival.min = 0; arrival.value = row.arrival;
+      arrival.setAttribute('aria-label', 'Arrival of P' + (index + 1));
+      arrival.addEventListener('input', () => {
+        const v = parseInt(arrival.value, 10);
+        if (!isNaN(v)) { row.arrival = Math.max(0, v); invalidate(); }
+      });
+      arrivalCell.appendChild(arrival); tr.appendChild(arrivalCell);
+      const burstCell = el('td'); const burst = document.createElement('input');
+      burst.type = 'number'; burst.min = 1; burst.value = row.burst;
+      burst.setAttribute('aria-label', 'CPU burst of P' + (index + 1));
+      burst.addEventListener('input', () => {
+        const v = parseInt(burst.value, 10);
+        if (!isNaN(v)) { row.burst = Math.max(1, v); invalidate(); }
+      });
+      burstCell.appendChild(burst); tr.appendChild(burstCell);
+      const memoryCell = el('td'); const memory = document.createElement('input');
+      memory.type = 'number'; memory.min = 1; memory.max = 96; memory.value = row.memory;
+      memory.setAttribute('aria-label', 'RAM of P' + (index + 1));
+      memory.addEventListener('input', () => {
+        const v = parseInt(memory.value, 10);
+        if (!isNaN(v)) { row.memory = Math.max(1, v); invalidate(); }
+      });
+      memoryCell.appendChild(memory); tr.appendChild(memoryCell);
+      tr.appendChild(el('td', '', row.output || KernelCore.KIND_INFO[row.kind].out));
+      const action = el('td'); const remove = el('button', 'btn', 'Remove'); remove.type = 'button';
+      remove.disabled = rows.length <= 1;
+      remove.addEventListener('click', () => { rows.splice(index, 1); renderLaunch(); invalidate(); });
+      action.appendChild(remove); tr.appendChild(action);
+      table.appendChild(tr);
+    });
+  }
+
+  function specsFromRows() {
+    return rows.map((row, index) => ({
+      pid: index + 1, kind: row.kind,
+      name: row.name || KernelCore.KIND_INFO[row.kind].label,
+      priority: Math.max(1, Math.min(3, row.priority)), arrival: Math.max(0, row.arrival),
+      memory: Math.max(1, row.memory), burst: Math.max(1, row.burst)
+    }));
+  }
+  function compute() {
+    stopPlay();
+    if (!state.ready) {
+      appMessage('Repository samples are not loaded, so the kernel cannot run. Serve the project with run_frontend.bat or node tools/serve.js.', 'no');
+      return;
+    }
+    state.kills = [];
+    appMessage('');
+    state.run = KernelCore.runKernel(specsFromRows(), kernelOptions());
+    state.tick = state.run.snapshots.length - 1;   // show the completed run at once
+    window.MiniKernelFs.replace(state.run.fs);
+    state.fsApplied = true;
+    renderAll();
+  }
+  function ensureRun() { if (!state.run) compute(); return state.run; }
+  function snapshot() {
+    const run = state.run;
+    if (!run) return null;
+    return run.snapshots[Math.min(state.tick, run.snapshots.length - 1)];
+  }
+  function applyRunFs() {
+    if (!state.run || state.fsApplied) return;
+    window.MiniKernelFs.replace(state.run.fs);
+    state.fsApplied = true;
+  }
+  function play() {
+    ensureRun();
+    if (state.timer) { stopPlay(); return; }
+    if (state.tick >= state.run.snapshots.length - 1) {
+      state.tick = 0;
+      state.fsApplied = false;
+    }
+    $('dash-play').textContent = 'Pause'; $('app-play').textContent = 'Pause';
+    state.timer = setInterval(() => {
+      state.tick++;
+      if (state.tick >= state.run.snapshots.length - 1) {
+        state.tick = state.run.snapshots.length - 1;
+        applyRunFs();
+        stopPlay();
+      }
+      renderAll();
+    }, 320);
+  }
+  function step() {
+    const run = ensureRun();
+    if (state.tick >= run.snapshots.length - 1) {
+      state.tick = 0;
+      state.fsApplied = false;
+    } else state.tick++;
+    if (state.tick >= run.snapshots.length - 1) applyRunFs();
+    renderAll();
+  }
+  function reset() {
+    stopPlay();
+    state.kills = [];
+    if (!state.ready) { renderAll(); return; }
+    // A reset restores the committed repository copies and then replays the run
+    // from t=0, so edits, terminations and app-created files are discarded.
+    window.MiniKernelFs.replace(KernelCore.fsFromSamples(repoSamples(), 128), { cwd: '/docs' });
+    state.run = KernelCore.runKernel(specsFromRows(), kernelOptions());
+    state.tick = 0;
+    state.fsApplied = false;
+    appMessage('');
+    renderAll();
+  }
+
+  function terminateApp(pid) {
+    const run = ensureRun();
+    if (!run) return;
+    const snap = snapshot();
+    const target = snap.procs.filter(p => p.pid === pid)[0];
+    if (!target) return;
+    if (target.state === 'TERMINATED') {
+      appMessage('P' + pid + ' is already terminated at t=' + snap.time + '.', 'wait');
+      return;
+    }
+    const at = Math.max(1, snap.time);
+    state.kills.push({ pid: pid, at: at });
+    state.run = KernelCore.runKernel(specsFromRows(), kernelOptions({ kills: state.kills }));
+    state.tick = Math.min(at + 1, state.run.snapshots.length - 1);
+    state.fsApplied = false;
+    renderAll();
+    appMessage('P' + pid + ' terminated at t=' + at +
+      ': memory, Banker resources and any pending file request were released.', 'no');
+  }
+
+  function stat(parent, value, label) {
+    const d = el('div', 'stat'); d.appendChild(el('b', '', value)); d.appendChild(el('span', '', label));
+    parent.appendChild(d);
+  }
+  function renderDash() {
+    const run = state.run, snap = snapshot();
+    $('dash-clock').textContent = 't = ' + (snap ? snap.time : 0) + (run ? ' / ' + run.elapsed : '');
+    $('dash-policy').textContent = (run ? run.cpuPolicy : $('app-cpu').value) + ' CPU · ' +
+                                   (run ? run.ioPolicy : $('app-io').value) + ' I/O';
+    const stats = $('dash-stats'); stats.innerHTML = '';
+    if (!snap) {
+      stat(stats, '—', 'press Run kernel');
+      $('dash-queues').innerHTML = ''; $('dash-memory').innerHTML = '';
+      $('dash-io-table').innerHTML = ''; $('dash-decisions').innerHTML = '';
+      $('dash-procs').innerHTML = ''; $('dash-timeline').innerHTML = '';
+      $('dash-memory-note').textContent = 'No simulation has run yet.';
+      return;
+    }
+    const counts = { NEW: 0, READY: 0, RUNNING: 0, WAITING: 0, TERMINATED: 0 };
+    snap.procs.forEach(p => { counts[p.state] = (counts[p.state] || 0) + 1; });
+    stat(stats, String(counts.RUNNING), 'running');
+    stat(stats, String(counts.READY), 'ready');
+    stat(stats, String(counts.WAITING), 'waiting / blocked');
+    stat(stats, String(counts.TERMINATED), 'terminated');
+    stat(stats, snap.time ? (100 * snap.cpuBusy / snap.time).toFixed(1) + '%' : '0%', 'CPU utilization');
+    stat(stats, String(snap.dispatches), 'dispatches');
+    stat(stats, String(snap.pending.length), 'pending file requests');
+    stat(stats, (snap.blocksUsed || 0) + '/' + (snap.blocksTotal || 0), 'disk blocks used');
+
+    const queues = $('dash-queues'); queues.innerHTML = '';
+    const add = (label, list) => {
+      const line = el('div');
+      line.appendChild(el('span', 't wide', label));
+      line.appendChild(document.createTextNode(list.length ? list.join(', ') : '—'));
+      queues.appendChild(line);
+    };
+    add('RUNNING', snap.cpu ? ['P' + snap.cpu] : []);
+    add('READY', snap.procs.filter(p => p.state === 'READY').map(p => 'P' + p.pid + '(pri' + p.priority + ')'));
+    add('WAITING', snap.procs.filter(p => p.state === 'WAITING').map(p => 'P' + p.pid));
+    add('TERMINATED', snap.procs.filter(p => p.state === 'TERMINATED').map(p => 'P' + p.pid));
+    add('NEW', snap.procs.filter(p => p.state === 'NEW').map(p => 'P' + p.pid));
+
+    const timeline = $('dash-timeline'); timeline.innerHTML = '';
+    const limit = Math.min(snap.time, run.gantt.length);
+    [['CPU', i => run.gantt[i]], ['Disk', i => (run.diskLane && run.diskLane[i]) || 0]].forEach(pair => {
+      const lane = el('div', 'timeline-lane'); lane.appendChild(el('span', 'timeline-label', pair[0]));
+      const cells = el('div', 'lane-cells');
+      for (let t = 0; t < limit; t++) {
+        const pid = pair[1](t);
+        const cell = el('span', 'tick-cell' + (pid ? ' busy' : ''), pid ? 'P' + pid : '—');
+        if (pid) cell.style.background = pair[0] === 'CPU' ? palette(pid) : 'var(--accent)';
+        cell.title = 't=' + t + ': ' + (pid ? pair[0] + ' serves P' + pid : pair[0] + ' idle');
+        cells.appendChild(cell);
+      }
+      lane.appendChild(cells); timeline.appendChild(lane);
+    });
+    const ruler = el('div', 'timeline-lane'); ruler.appendChild(el('span', 'timeline-label', 'Tick'));
+    const ticks = el('div', 'lane-cells');
+    for (let t = 0; t < limit; t++) ticks.appendChild(el('span', 'tick-cell', String(t)));
+    ruler.appendChild(ticks); timeline.appendChild(ruler);
+
+    const memory = $('dash-memory'); memory.innerHTML = '';
+    snap.memory.forEach(region => {
+      const cell = el('div', 'memory-region' + (region.pid === 0 ? ' free' : ''),
+                       region.pid === 0 ? 'FREE' : 'P' + region.pid);
+      cell.style.width = (100 * region.size / 96) + '%';
+      if (region.pid !== 0) cell.style.background = palette(region.pid);
+      cell.title = 'start=' + region.start + ', size=' + region.size;
+      memory.appendChild(cell);
+    });
+    const usedRam = snap.memory.filter(r => r.pid !== 0).reduce((sum, r) => sum + r.size, 0);
+    $('dash-memory-note').textContent = 'RAM: ' + usedRam + '/96 units allocated; ' +
+      snap.memory.filter(r => r.pid === 0).length + ' free region(s).';
+
+    const io = $('dash-io-table'); io.innerHTML = '';
+    const ioHead = el('tr'); ['ID', 'Pid', 'Status', 'Operation', 'Path', 'Priority', 'Submitted', 'Needs'].forEach(h => ioHead.appendChild(el('th', '', h)));
+    io.appendChild(ioHead);
+    const ioRow = (request, status) => {
+      const row = el('tr');
+      [String(request.id), 'P' + request.pid, status, request.op, request.path,
+       String(request.priority), String(request.submitted),
+       request.remaining + '/' + request.serviceTicks + ' ticks'].forEach(x => row.appendChild(el('td', '', x)));
+      io.appendChild(row);
+    };
+    if (snap.servingRequest) ioRow(snap.servingRequest, 'SERVING');
+    snap.pending.forEach(request => ioRow(request, 'PENDING'));
+    if (!snap.pending.length && !snap.servingRequest) {
+      const row = el('tr'); const cell = el('td', '', 'No pending requests.');
+      cell.colSpan = 8; row.appendChild(cell); io.appendChild(row);
+    }
+
+    const decisions = $('dash-decisions'); decisions.innerHTML = '';
+    const recent = run.decisions.filter(entry => entry.t <= snap.time).slice(-12);
+    if (!recent.length) decisions.appendChild(el('div', '', 'No scheduling decision yet.'));
+    recent.forEach(entry => {
+      const line = el('div');
+      line.appendChild(el('span', 't', '[t=' + entry.t + ']'));
+      line.appendChild(document.createTextNode(entry.text));
+      decisions.appendChild(line);
+    });
+
+    const procs = $('dash-procs'); procs.innerHTML = '';
+    const head = el('tr'); ['PID', 'Application', 'Pri', 'State', 'Step', 'Remaining', 'I/O wait', 'Dispatch', 'CT', 'TAT', 'WT', 'RT'].forEach(h => head.appendChild(el('th', '', h)));
+    procs.appendChild(head);
+    snap.procs.forEach(p => {
+      const row = el('tr');
+      const done = p.finish > 0 && p.finish <= snap.time;
+      const tat = done ? p.finish - p.arrival : null;
+      ['P' + p.pid, p.name, String(p.priority), p.state, p.step + '/' + p.steps,
+       String(Math.max(0, p.remaining)), String(p.ioWait), String(p.dispatches),
+       done ? String(p.finish) : '—', done ? String(tat) : '—',
+       done ? String(Math.max(0, tat - p.burst - p.ioWait)) : '—', p.response < 0 ? '—' : String(p.response)
+      ].forEach(x => row.appendChild(el('td', '', x)));
+      procs.appendChild(row);
+    });
+  }
+
+  function renderApps() {
+    const run = state.run, snap = snapshot();
+    $('app-clock').textContent = 't = ' + (snap ? snap.time : 0) + (run ? ' / ' + run.elapsed : '');
+    const table = $('app-status'); table.innerHTML = '';
+    const head = el('tr'); ['PID', 'Application', 'Priority', 'State', 'Progress', 'Remaining', 'I/O wait', 'Result', 'Action'].forEach(h => head.appendChild(el('th', '', h)));
+    table.appendChild(head);
+    if (!snap) {
+      rows.forEach((row, index) => {
+        const tr = el('tr');
+        ['P' + (index + 1), row.name, String(row.priority), 'NOT RUN', '—', String(row.burst), '—',
+         'Press Run to execute the applications', '—'].forEach(x => tr.appendChild(el('td', '', x)));
+        table.appendChild(tr);
+      });
+    } else {
+      snap.procs.forEach(p => {
+        const tr = el('tr');
+        const result = p.state === 'TERMINATED' ? (p.result || '(finished)') : '—';
+        ['P' + p.pid, p.name, String(p.priority), p.state, p.step + '/' + p.steps,
+         String(Math.max(0, p.remaining)), String(p.ioWait), result].forEach(x => tr.appendChild(el('td', '', x)));
+        const action = el('td');
+        const kill = el('button', 'btn', p.state === 'TERMINATED' ? 'Terminated' : 'Terminate');
+        kill.type = 'button';
+        kill.disabled = p.state === 'TERMINATED';
+        kill.addEventListener('click', () => terminateApp(p.pid));
+        action.appendChild(kill);
+        tr.appendChild(action);
+        table.appendChild(tr);
+      });
+    }
+
+    const output = $('app-output'); output.innerHTML = '';
+    if (!run) {
+      output.appendChild(el('div', '', 'Run the kernel to see state transitions, real scheduling decisions and application output.'));
+    } else {
+      run.transitions.filter(t => t.t <= snap.time).slice(-40).forEach(change => {
+        const line = el('div');
+        line.appendChild(el('span', 't', '[t=' + change.t + ']'));
+        line.appendChild(document.createTextNode('P' + change.pid + ': ' + change.from + ' → ' + change.to + ' (' + change.reason + ')'));
+        output.appendChild(line);
+      });
+      snap.procs.filter(p => p.state === 'TERMINATED').forEach(p => {
+        output.appendChild(el('div', '', 'P' + p.pid + ' ' + p.name + ' -> ' + (p.result || '(finished)')));
+      });
+    }
+
+    const files = $('app-files'); files.innerHTML = '';
+    const fhead = el('tr'); ['Path', 'Bytes', 'Blocks', 'Allocation'].forEach(h => fhead.appendChild(el('th', '', h))); files.appendChild(fhead);
+    if (run) {
+      Object.values(run.fs.files).sort((a, b) => a.path.localeCompare(b.path)).forEach(file => {
+        const tr = el('tr');
+        [file.path, String(file.contents.length), file.blocks.join(','), file.method].forEach(x => tr.appendChild(el('td', '', x)));
+        files.appendChild(tr);
+      });
+    }
+  }
+
+  function renderRunIo() {
+    const table = $('io-run-table'); table.innerHTML = '';
+    const head = el('tr'); ['ID', 'Pid', 'Application', 'Op', 'Path', 'Priority', 'Submitted', 'Depth', 'Order', 'Wait', 'Status'].forEach(h => head.appendChild(el('th', '', h)));
+    table.appendChild(head);
+    const run = state.run, snap = snapshot();
+    if (!run || !snap) {
+      const row = el('tr'); const cell = el('td', '', 'Run the applications to populate this table.');
+      cell.colSpan = 11; row.appendChild(cell); table.appendChild(row);
+      return;
+    }
+    run.requests.filter(r => r.submitted <= snap.time).forEach(request => {
+      const row = el('tr');
+      [String(request.id), 'P' + request.pid, request.app, request.op, request.path, String(request.priority),
+       String(request.submitted), String(request.depth || 1), request.order ? String(request.order) : '—',
+       request.completed >= 0 ? String(request.completed - request.submitted) : '—', request.status]
+        .forEach(x => row.appendChild(el('td', '', x)));
+      table.appendChild(row);
+    });
+  }
+
+  function renderAll() { renderDash(); renderApps(); renderRunIo(); }
+
+  // ---- I/O comparison --------------------------------------------------------
+  function runIoComparison() {
+    if (!ioRuns) {
+      ioRuns = {
+        fcfs: KernelCore.simulateRequests(KernelCore.demoRequests(), 'fcfs'),
+        priority: KernelCore.simulateRequests(KernelCore.demoRequests(), 'priority')
+      };
+    }
+    const fcfs = ioRuns.fcfs, priority = ioRuns.priority;
+    const stats = $('io-stats'); stats.innerHTML = '';
+    const editorWait = run => (run.requests.find(r => r.app === 'text-editor') || {}).wait;
+    stat(stats, String(editorWait(fcfs)), 'editor wait, FCFS');
+    stat(stats, String(editorWait(priority)), 'editor wait, priority');
+    stat(stats, fcfs.stats.averageWait.toFixed(2), 'avg wait, FCFS');
+    stat(stats, priority.stats.averageWait.toFixed(2), 'avg wait, priority');
+
+    const order = (target, run) => {
+      target.innerHTML = '';
+      run.requests.slice().sort((a, b) => a.order - b.order).forEach(request => {
+        const line = el('div');
+        line.appendChild(el('span', 't', '#' + request.order));
+        line.appendChild(document.createTextNode(request.op + ' ' + request.path + ' · P' + request.pid +
+          ' ' + request.app + ' · priority ' + request.priority + ' · wait ' + request.wait + ' ticks'));
+        target.appendChild(line);
+      });
+    };
+    order($('io-fcfs-order'), fcfs);
+    order($('io-priority-order'), priority);
+
+    const table = $('io-table'); table.innerHTML = '';
+    const head = el('tr'); ['ID', 'Application', 'Operation', 'Path', 'Priority', 'Submitted', 'Queue depth', 'Status', 'FCFS order/wait', 'Priority order/wait'].forEach(h => head.appendChild(el('th', '', h)));
+    table.appendChild(head);
+    fcfs.requests.forEach(request => {
+      const other = priority.requests.find(candidate => candidate.id === request.id);
+      const row = el('tr');
+      [String(request.id), request.app, request.op, request.path, String(request.priority), String(request.submitted),
+       String(request.depth || 1), request.status,
+       request.order + ' / ' + request.wait, other.order + ' / ' + other.wait]
+        .forEach(x => row.appendChild(el('td', '', x)));
+      table.appendChild(row);
+    });
+
+    const which = $('io-which').value === 'fcfs' ? fcfs : priority;
+    const log = $('io-log'); log.innerHTML = '';
+    which.log.forEach(entry => {
+      const line = el('div');
+      line.appendChild(el('span', 't', '[t=' + entry.t + ']'));
+      line.appendChild(document.createTextNode(entry.text));
+      log.appendChild(line);
+    });
+  }
+
+  // ---- wiring ---------------------------------------------------------------
+  $('dash-run').addEventListener('click', compute);
+  $('dash-step').addEventListener('click', step);
+  $('dash-play').addEventListener('click', play);
+  $('dash-reset').addEventListener('click', reset);
+  $('app-run').addEventListener('click', compute);
+  $('app-step').addEventListener('click', step);
+  $('app-play').addEventListener('click', play);
+  $('app-reset').addEventListener('click', reset);
+  $('app-add').addEventListener('click', () => {
+    const kind = 'calculator';
+    rows.push({ kind, name: KernelCore.KIND_INFO[kind].label, priority: 3, arrival: 0,
+                memory: KernelCore.KIND_INFO[kind].mem, burst: defaultBurst(kind),
+                description: KernelCore.KIND_INFO[kind].desc,
+                output: KernelCore.KIND_INFO[kind].out });
+    renderLaunch(); invalidate();
+  });
+  $('app-cpu').addEventListener('change', invalidate);
+  $('app-io').addEventListener('change', invalidate);
+  $('io-compare').addEventListener('click', runIoComparison);
+  $('io-which').addEventListener('change', runIoComparison);
+
+  function setScenario(list) {
+    rows = list.map(item => {
+      const app = KernelCore.makeApp(item.kind, 1, {});
+      return { kind: item.kind, name: KernelCore.KIND_INFO[item.kind].label,
+               priority: item.priority, arrival: item.arrival,
+               memory: KernelCore.KIND_INFO[item.kind].mem, burst: app.burst,
+               description: KernelCore.KIND_INFO[item.kind].desc,
+               output: KernelCore.KIND_INFO[item.kind].out };
+    });
+    renderLaunch();
+    compute();
+  }
+  $('sc-priority').addEventListener('click', () => {
+    setScenario([{ kind: 'counter', priority: 3, arrival: 0 },
+                 { kind: 'file-analyzer', priority: 3, arrival: 0 },
+                 { kind: 'text-editor', priority: 2, arrival: 2 },
+                 { kind: 'calculator', priority: 1, arrival: 5 }]);
+    document.getElementById('tabbtn-dash').click();
+  });
+  $('sc-io').addEventListener('click', () => {
+    runIoComparison();
+    document.getElementById('tabbtn-io').click();
+  });
+  $('sc-file').addEventListener('click', () => {
+    setScenario([{ kind: 'file-search', priority: 2, arrival: 0 },
+                 { kind: 'file-analyzer', priority: 3, arrival: 0 },
+                 { kind: 'indexer', priority: 1, arrival: 1 }]);
+    document.getElementById('tabbtn-apps').click();
+  });
+  $('sc-fs').addEventListener('click', () => { document.getElementById('tabbtn-fs').click(); });
+  $('sc-rest').addEventListener('click', () => { document.getElementById('tabbtn-memory').click(); });
+
+  // ---- integrated run tab ----------------------------------------------------
+  // The original integrated tab is rewired to the same 8-application kernel so the
+  // two views can never disagree about priorities, I/O or file contents.
+  function renderIntegratedTable() {
+    const table = $('app-table'); table.innerHTML = '';
+    const head = el('tr');
+    ['PID', 'Application', 'CPU priority', 'CPU burst', 'RAM', 'Banker request', 'Output file'].forEach(h => head.appendChild(el('th', '', h)));
+    table.appendChild(head);
+    rows.forEach((row, index) => {
+      const app = KernelCore.makeApp(row.kind, index + 1, {
+        name: row.name, priority: row.priority, arrival: row.arrival,
+        memory: row.memory, burst: row.burst
+      });
+      const tr = el('tr');
+      ['P' + (index + 1), app.name, 'Priority ' + app.priority, String(app.burst),
+       String(app.memory), '[' + app.resources.join(', ') + ']', app.out]
+        .forEach(x => tr.appendChild(el('td', '', x)));
+      table.appendChild(tr);
+    });
+  }
+
+  function integratedRun() {
+    if (!state.ready) {
+      const log = $('integrated-log');
+      log.innerHTML = '';
+      log.appendChild(el('div', '', 'Repository samples are not loaded. Start the page with run_frontend.bat or node tools/serve.js.'));
+      return;
+    }
+    const run = KernelCore.runKernel(specsFromRows(),
+      kernelOptions({ cpu: 'priority', io: 'priority' }));
+    window.MiniKernelFs.replace(run.fs, { cwd: '/apps' });
+    state.fsApplied = true;
+
+    const timeline = $('integrated-timeline'); timeline.innerHTML = '';
+    [['CPU', t => run.gantt[t]], ['Disk', t => run.diskLane[t] || 0]].forEach(pair => {
+      const line = el('div', 'timeline-lane');
+      line.appendChild(el('span', 'timeline-label', pair[0]));
+      const cells = el('div', 'lane-cells');
+      for (let t = 0; t < run.elapsed; t++) {
+        const pid = pair[1](t);
+        const cell = el('span', 'tick-cell' + (pid ? ' busy' : ''), pid ? 'P' + pid : '—');
+        if (pid) cell.style.background = pair[0] === 'CPU' ? palette(pid) : 'var(--accent)';
+        cell.title = 't=' + t + ': ' + (pid ? pair[0] + ' serves P' + pid : pair[0] + ' idle');
+        cells.appendChild(cell);
+      }
+      line.appendChild(cells); timeline.appendChild(line);
+    });
+    const ruler = el('div', 'timeline-lane'); ruler.appendChild(el('span', 'timeline-label', 'Tick'));
+    const ticks = el('div', 'lane-cells');
+    for (let t = 0; t < run.elapsed; t++) ticks.appendChild(el('span', 'tick-cell', String(t)));
+    ruler.appendChild(ticks); timeline.appendChild(ruler);
+
+    const metrics = $('integrated-stats'); metrics.innerHTML = '';
+    const avgTat = run.runtimes.reduce((sum, rt) => sum + (rt.finish - rt.arrival), 0) / run.runtimes.length;
+    stat(metrics, String(run.elapsed), 'elapsed ticks');
+    stat(metrics, (run.elapsed ? 100 * run.busy / run.elapsed : 0).toFixed(1) + '%', 'CPU utilization');
+    stat(metrics, String(run.dispatches), 'dispatches');
+    stat(metrics, String(run.requests.length), 'file/I-O requests');
+    stat(metrics, avgTat.toFixed(2), 'average turnaround');
+    stat(metrics, KernelCore.fsUsed(run.fs) + '/' + run.fs.total, 'disk blocks used');
+
+    const lines = [];
+    run.transitions.forEach(change => lines.push({ t: change.t, text: 'P' + change.pid + ': ' +
+      change.from + ' → ' + change.to + ' (' + change.reason + ')' }));
+    run.decisions.forEach(entry => lines.push({ t: entry.t, text: entry.text }));
+    lines.sort((a, b) => a.t - b.t);
+    const log = $('integrated-log'); log.innerHTML = '';
+    lines.slice(0, 80).forEach(entry => {
+      const line = el('div');
+      line.appendChild(el('span', 't', '[t=' + entry.t + ']'));
+      line.appendChild(document.createTextNode(entry.text));
+      log.appendChild(line);
+    });
+
+    const ram = $('integrated-ram'); ram.innerHTML = '';
+    run.runtimes.forEach(rt => ram.appendChild(el('div', '',
+      'P' + rt.pid + ' ' + rt.name + ': ' + rt.memoryUnits + ' RAM units — released on exit')));
+    ram.appendChild(el('div', '', 'Free at end: 96 / 96 units.'));
+    run.runtimes.forEach(rt => ram.appendChild(el('div', '', 'P' + rt.pid + ' ' + rt.name + ' -> ' + (rt.result || '(no result)'))));
+
+    const fileTable = $('integrated-files'); fileTable.innerHTML = '';
+    const fhead = el('tr'); ['Path', 'Bytes', 'Allocation', 'Blocks'].forEach(x => fhead.appendChild(el('th', '', x)));
+    fileTable.appendChild(fhead);
+    Object.values(run.fs.files).filter(file => file.path.indexOf('/apps/') === 0)
+      .sort((a, b) => a.path.localeCompare(b.path)).forEach(file => {
+      const row = el('tr');
+      [file.path, String(file.contents.length), file.method, file.blocks.join(', ')]
+        .forEach(x => row.appendChild(el('td', '', x)));
+      fileTable.appendChild(row);
+    });
+
+    const blocks = $('integrated-blocks'); blocks.innerHTML = '';
+    for (let i = 0; i < run.fs.owners.length; i += 8) {
+      blocks.appendChild(el('div', '', run.fs.owners.slice(i, i + 8)
+        .map((id, j) => (i + j) + ':' + (id ? 'F' + id : 'free')).join('  ')));
+    }
+  }
+
+  function wireIntegrated() {
+    renderIntegratedTable();
+    const old = $('integrated-run');
+    if (!old) return;
+    const button = old.cloneNode(true);          // drops the legacy listener
+    old.parentNode.replaceChild(button, old);
+    button.addEventListener('click', integratedRun);
+  }
+
+  // ---- repository explorer ---------------------------------------------------
+  let selectedRepo = null;
+  function showRepoMessage(text, kind) {
+    const box = $('repo-message');
+    box.textContent = text;
+    box.className = 'msg' + (kind ? ' ' + kind : '');
+    box.style.display = text ? 'block' : 'none';
+  }
+  function renderRepoFiles() {
+    const table = $('repo-table'); table.innerHTML = '';
+    const head = el('tr');
+    ['Committed path', 'Type', 'Bytes', 'Virtual path', 'Allocation', '']
+      .forEach(h => head.appendChild(el('th', '', h)));
+    table.appendChild(head);
+    state.repoFiles.forEach(file => {
+      const row = el('tr');
+      [file.source, file.type, String(file.bytes), file.vfsPath, file.allocation]
+        .forEach(value => row.appendChild(el('td', '', value)));
+      const action = el('td');
+      const preview = el('button', 'btn', 'Preview');
+      preview.type = 'button';
+      preview.addEventListener('click', () => {
+        selectedRepo = file;
+        $('repo-selected').value = file.source;
+        $('repo-preview').textContent = file.contents;
+        $('repo-target').value = '/apps/' + file.source.split('/').pop();
+        showRepoMessage('Previewing the committed file ' + file.source + ' (' + file.bytes + ' bytes).', 'ok');
+      });
+      action.appendChild(preview);
+      row.appendChild(action);
+      table.appendChild(row);
+    });
+  }
+
+  $('repo-copy').addEventListener('click', () => {
+    if (!selectedRepo) { showRepoMessage('Select and preview a repository sample first.', 'wait'); return; }
+    const target = KernelCore.normalise($('repo-target').value.trim());
+    if (!target) { showRepoMessage('Enter a valid absolute destination path, for example /apps/report-copy.txt.', 'no'); return; }
+    const live = window.MiniKernelFs.current();
+    if (!KernelCore.fsWrite(live, target, selectedRepo.contents, selectedRepo.allocation, 'user')) {
+      showRepoMessage('Copy failed: invalid path, directory collision or insufficient blocks.', 'no');
+      return;
+    }
+    const entry = live.files[target];
+    entry.source = 'repository sample';
+    entry.origin = selectedRepo.source;
+    entry.dirty = false;
+    window.MiniKernelFs.render();
+    showRepoMessage('Copied ' + selectedRepo.source + ' to ' + target + ' (' +
+      entry.contents.length + ' bytes, ' + entry.blocks.length + ' blocks). The committed file is unchanged.', 'ok');
+  });
+  $('repo-open').addEventListener('click', () => {
+    if (!selectedRepo) { showRepoMessage('Select and preview a repository sample first.', 'wait'); return; }
+    const live = window.MiniKernelFs.current();
+    if (!live.files[selectedRepo.vfsPath]) {
+      if (!KernelCore.fsWrite(live, selectedRepo.vfsPath, selectedRepo.contents,
+                             selectedRepo.allocation, 'user')) {
+        showRepoMessage('Could not create the virtual copy of ' + selectedRepo.source + '.', 'no');
+        return;
+      }
+      const entry = live.files[selectedRepo.vfsPath];
+      entry.source = 'repository sample';
+      entry.origin = selectedRepo.source;
+      window.MiniKernelFs.render();
+    }
+    window.MiniKernelFs.openPath(selectedRepo.vfsPath);
+    showRepoMessage('Loaded ' + selectedRepo.vfsPath + ' into the editor. Edits affect only the virtual copy.', 'ok');
+  });
+
+  // ---- content search ---------------------------------------------------------
+  $('fs-search').addEventListener('click', () => {
+    const query = $('fs-query').value;
+    const log = $('fs-search-log'); log.innerHTML = '';
+    if (!query) {
+      log.appendChild(el('div', '', 'Enter a search term.'));
+      return;
+    }
+    const hits = [];
+    const live = window.MiniKernelFs.current();
+    Object.values(live.files).forEach(file => {
+      file.contents.split('\n').forEach((line, index) => {
+        if (line.indexOf(query) >= 0)
+          hits.push({ where: 'VFS ' + file.path + ':' + (index + 1), line: line.trim() });
+      });
+    });
+    state.repoFiles.forEach(file => {
+      file.contents.split('\n').forEach((line, index) => {
+        if (line.indexOf(query) >= 0)
+          hits.push({ where: 'repository ' + file.source + ':' + (index + 1), line: line.trim() });
+      });
+    });
+    hits.slice(0, 60).forEach(hit => log.appendChild(el('div', '', hit.where + '  ' + hit.line)));
+    if (!hits.length) log.appendChild(el('div', '', 'No matches for "' + query + '".'));
+    window.MiniKernelFs.message('Content search for "' + query + '": ' + hits.length +
+      ' match(es) across the virtual and repository files.');
+  });
+
+  // ---- self-tests -------------------------------------------------------------
+  function renderSelfTest(report) {
+    const table = $('selftest-table'); table.innerHTML = '';
+    const head = el('tr');
+    ['Test', 'Result', 'Expected', 'Actual', 'Message'].forEach(h => head.appendChild(el('th', '', h)));
+    table.appendChild(head);
+    report.results.forEach(item => {
+      const row = el('tr');
+      row.appendChild(el('td', '', item.name));
+      const status = el('td', '', item.ok ? 'PASS' : 'FAIL');
+      status.style.color = item.ok ? 'var(--good)' : 'var(--bad)';
+      status.style.fontWeight = '700';
+      row.appendChild(status);
+      row.appendChild(el('td', '', item.expected));
+      row.appendChild(el('td', '', item.actual));
+      row.appendChild(el('td', '', item.message));
+      table.appendChild(row);
+    });
+    const summary = $('selftest-summary');
+    summary.textContent = report.passed + ' passed · ' + report.failed + ' failed';
+    const stats = $('selftest-stats'); stats.innerHTML = '';
+    stat(stats, String(report.total), 'tests');
+    stat(stats, String(report.passed), 'passed');
+    stat(stats, String(report.failed), 'failed');
+    const status = $('selftest-status');
+    status.className = 'msg ' + (report.failed ? 'no' : 'ok');
+    status.textContent = report.failed
+      ? report.failed + ' test(s) failed: ' +
+        report.results.filter(item => !item.ok).map(item => item.name).join('; ')
+      : 'All ' + report.passed + ' frontend self-tests passed.';
+  }
+  function runSelfTests() {
+    if (!state.ready) {
+      const status = $('selftest-status');
+      status.className = 'msg no';
+      status.textContent = 'Repository samples are not loaded. Start the page with run_frontend.bat or node tools/serve.js.';
+      return null;
+    }
+    const report = KernelSelfTest.run(KernelCore, {
+      applications: state.applications,
+      samples: state.samples,
+      repoFiles: state.repoFiles
+    }, {
+      reset: reset,
+      snapshot: function () {
+        const live = window.MiniKernelFs.current();
+        return {
+          used: KernelCore.fsUsed(live),
+          files: Object.keys(live.files).length,
+          notes: (live.files['/docs/notes.txt'] || {}).contents || ''
+        };
+      }
+    });
+    renderSelfTest(report);
+    return report;
+  }
+  $('selftest-run').addEventListener('click', runSelfTests);
+  $('selftest-reset').addEventListener('click', () => {
+    reset();
+    runSelfTests();
+    document.getElementById('tabbtn-selftest').click();
+  });
+
+  // ---- boot -------------------------------------------------------------------
+  function showBootError(errors) {
+    const box = $('boot');
+    box.className = 'msg no';
+    box.innerHTML = '';
+    box.appendChild(el('div', '', 'The repository sample files could not be loaded, so the simulation is disabled.'));
+    box.appendChild(el('div', '', 'Serve the project over HTTP: run run_frontend.bat (or node tools/serve.js) and open http://127.0.0.1:8088/web/index.html. Opening web/index.html directly as a file blocks fetch().'));
+    const list = document.createElement('ul');
+    errors.forEach(error => list.appendChild(el('li', '', error)));
+    box.appendChild(list);
+    ['dash-run', 'dash-step', 'dash-play', 'app-run', 'app-step', 'app-play',
+     'selftest-run', 'sc-priority', 'sc-io', 'sc-file', 'integrated-run']
+      .forEach(id => { if ($(id)) $(id).disabled = true; });
+    appMessage('Repository samples unavailable; the kernel cannot run.', 'no');
+  }
+
+  async function boot() {
+    const box = $('boot');
+    box.className = 'msg wait';
+    box.textContent = 'Loading apps/app-manifest.json and the committed sample files…';
+    let result;
+    try {
+      result = await SampleLoader.load('../', { knownKinds: KernelCore.APP_KINDS });
+    } catch (error) {
+      showBootError([error.message]);
+      return;
+    }
+    if (!result.ok) { showBootError(result.errors); return; }
+
+    state.manifest = result.manifest;
+    state.applications = result.applications;
+    state.repoFiles = result.repoFiles;
+    state.samples = result.samples;
+    rows = result.applications.map(app => ({
+      kind: app.kind,
+      name: app.name,
+      priority: app.priority,
+      arrival: app.arrival,
+      memory: app.memory,
+      burst: app.burst || defaultBurst(app.kind),
+      description: app.description,
+      output: (app.outputFiles && app.outputFiles[0]) || ''
+    }));
+    state.ready = true;
+    renderLaunch();
+    renderRepoFiles();
+    window.MiniKernelFs.replace(KernelCore.fsFromSamples(repoSamples(), 128), { cwd: '/docs' });
+    box.className = 'msg ok';
+    box.textContent = 'Loaded ' + result.applications.length + ' application definitions and ' +
+      result.samples.length + ' sample files from the repository (' +
+      result.repoFiles.reduce((sum, file) => sum + file.bytes, 0) + ' bytes). ' +
+      'CPU and file-I/O priorities are separate policies.';
+    compute();
+    runIoComparison();
+    wireIntegrated();
+  }
+
+  renderLaunch();
+  runIoComparison();
+  boot();
 })();
 </script>
 

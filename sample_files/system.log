@@ -1,0 +1,6 @@
+boot: mini kernel 1.0
+INFO: mounted /apps
+ERROR: simulated disk retry
+WARN: memory pressure
+ERROR: request queue full
+INFO: recovery complete

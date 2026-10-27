@@ -1,0 +1,19 @@
+{
+  "kind": "counter",
+  "name": "Counter",
+  "description": "A CPU-intensive counting workload that saves its total at the end.",
+  "workload": [
+    "5 CPU ticks: sum 1..1000 (CPU-bound)",
+    "file call: WRITE /apps/counter.txt (I/O priority 3)",
+    "1 CPU tick: finish"
+  ],
+  "defaultPriority": 3,
+  "defaultArrival": 0,
+  "memoryUnits": 8,
+  "resources": [0, 1, 0],
+  "inputFiles": [],
+  "outputFiles": ["/apps/counter.txt"],
+  "allocation": "indexed",
+  "operations": ["WRITE"],
+  "expectedOutput": "1 + 2 + ... + 1000 = 500500"
+}
